@@ -1,9 +1,11 @@
 export { createAgentSession } from "./agent/session.js";
+export { createTraceRecorder } from "./agent/trace.js";
 export { createCoreApp } from "./core/app.js";
 export { createModelProvider } from "./providers/model-provider.js";
 export { createToolRegistry } from "./tools/registry.js";
 export { createWorkspace } from "./workspace/workspace.js";
 export type { AgentEvent, AgentSession } from "./agent/session.js";
+export type { TraceEvent, TraceEventType, TraceRecorder } from "./agent/trace.js";
 export type { CoreApp } from "./core/app.js";
 export type { ModelMessage, ModelProvider } from "./providers/model-provider.js";
 export type { Tool, ToolRegistry, ToolResult } from "./tools/registry.js";
