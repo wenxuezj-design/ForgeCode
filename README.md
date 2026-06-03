@@ -4,6 +4,8 @@
 
 ForgeCode 从一个小型 TypeScript CLI 开始，目标是逐步成长为一个 Claude Code-style 的本地编码智能体：核心清晰、工具接口明确、行为可测试、结果可评估。
 
+这里的“第一性原理”指的是：不从“复刻某个界面或功能清单”开始，而是先拆解 coding agent 必须成立的基本事实：任务理解、上下文发现、工具调用、文件修改、验证闭环、安全边界和可复现评估。ForgeCode 会从这些基本能力出发，再逐步逼近 Claude Code-style 的工程设计和使用体验。
+
 ## 快速开始
 
 ```bash
@@ -33,6 +35,10 @@ npm run dev -- run "inspect this repository"
 ## 架构
 
 当前模块布局和增长路径见 [docs/architecture.md](docs/architecture.md)。
+
+## Claude Code 对齐原则
+
+ForgeCode 的核心目标是对标 Claude Code 的工程设计和使用体验。具体原则见 [docs/claude-code-alignment.md](docs/claude-code-alignment.md)。
 
 ## 路线图
 

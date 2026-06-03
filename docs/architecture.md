@@ -2,6 +2,8 @@
 
 ForgeCode 是一个 TypeScript CLI 项目，用来从零构建 Claude Code-style 的本地 coding agent。当前项目仍然是骨架阶段：每个模块先定义清晰边界，避免过早把 agent loop、工具系统、模型 provider 和 workspace 操作耦合在一起。
 
+设计取舍必须遵守 [Claude Code 对齐原则](claude-code-alignment.md)：功能可以分阶段实现，但工具边界、执行循环、上下文管理、验证闭环和本地开发体验应尽量贴近 Claude Code-style agent。
+
 ## 模块
 
 - `src/cli.ts`：可执行入口。负责把进程参数交给 CLI 应用层，并写入 stdout、stderr 和 exit code。
