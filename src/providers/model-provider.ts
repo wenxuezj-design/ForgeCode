@@ -1,3 +1,15 @@
+import type { TraceEvent } from "../agent/trace.js";
+
+export type AgentAction =
+  | { kind: "plan"; content: string }
+  | { kind: "tool"; toolName: string; input: unknown }
+  | { kind: "final"; content: string };
+
+export interface AgentActionContext {
+  task: string;
+  events: TraceEvent[];
+}
+
 export interface ModelMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
@@ -6,6 +18,7 @@ export interface ModelMessage {
 export interface ModelProvider {
   name: string;
   complete(messages: ModelMessage[]): Promise<ModelMessage>;
+  nextAction(context: AgentActionContext): Promise<AgentAction>;
 }
 
 export interface CreateModelProviderOptions {
@@ -21,6 +34,12 @@ export function createModelProvider(options: CreateModelProviderOptions): ModelP
       return {
         role: "assistant",
         content: lastMessage ? `Stub response to: ${lastMessage.content}` : "Stub response"
+      };
+    },
+    async nextAction() {
+      return {
+        kind: "final",
+        content: "No provider actions configured."
       };
     }
   };
