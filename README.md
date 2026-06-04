@@ -43,3 +43,7 @@ ForgeCode 的核心目标是对标 Claude Code 的工程设计和使用体验。
 ## 路线图
 
 版本规划和 benchmark 策略见 [docs/roadmap.md](docs/roadmap.md)。
+
+## v0.1 验收
+
+v0.1 的完成标准见 [docs/v0.1-acceptance.md](docs/v0.1-acceptance.md)。

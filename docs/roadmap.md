@@ -54,6 +54,8 @@ benchmark 结果必须记录足够上下文，否则无法解释：
 
 实施计划：[v0.1 本地 Agent Loop](superpowers/plans/2026-05-30-v0-1-local-agent-loop.md)。
 
+验收清单：[v0.1 验收清单](v0.1-acceptance.md)。
+
 必需能力：
 
 - 通过 `forgecode run <task>` 接收任务。
