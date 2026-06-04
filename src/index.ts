@@ -1,6 +1,7 @@
 export { createAgentSession } from "./agent/session.js";
 export { createTraceRecorder } from "./agent/trace.js";
 export { createCoreApp } from "./core/app.js";
+export { runTask } from "./core/run-task.js";
 export { createModelProvider } from "./providers/model-provider.js";
 export { createScriptedProvider } from "./providers/scripted-provider.js";
 export { createCommandTool } from "./tools/command-tool.js";
@@ -11,6 +12,7 @@ export { createWorkspace } from "./workspace/workspace.js";
 export type { AgentEvent, AgentSession } from "./agent/session.js";
 export type { TraceEvent, TraceEventType, TraceRecorder } from "./agent/trace.js";
 export type { CoreApp } from "./core/app.js";
+export type { RunTaskOptions, RunTaskResult } from "./core/run-task.js";
 export type { AgentAction, AgentActionContext, ModelMessage, ModelProvider } from "./providers/model-provider.js";
 export type { CreateCommandToolOptions } from "./tools/command-tool.js";
 export type { Tool, ToolRegistry, ToolResult } from "./tools/registry.js";

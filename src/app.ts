@@ -1,4 +1,9 @@
-import { createAgentSession } from "./agent/session.js";
+import { runTask } from "./core/run-task.js";
+import { createModelProvider } from "./providers/model-provider.js";
+import { createCommandTool } from "./tools/command-tool.js";
+import { createToolRegistry } from "./tools/registry.js";
+import { createWorkspaceTools } from "./tools/workspace-tools.js";
+import { createWorkspace } from "./workspace/workspace.js";
 
 const VERSION = "0.1.0";
 
@@ -31,7 +36,7 @@ export function createHelpMessage(): string {
   ].join("\n");
 }
 
-export function runCli(args: string[]): CliResult {
+export async function runCli(args: string[]): Promise<CliResult> {
   const [command] = args;
 
   if (command === "--version" || command === "-v") {
@@ -61,14 +66,23 @@ export function runCli(args: string[]): CliResult {
       };
     }
 
-    const session = createAgentSession({ task });
+    const workspace = createWorkspace(process.cwd());
+    const tools = createToolRegistry();
+    const workspaceTools = createWorkspaceTools(workspace);
+    tools.register(workspaceTools.listFiles);
+    tools.register(workspaceTools.readFile);
+    tools.register(workspaceTools.writeFile);
+    tools.register(createCommandTool({ cwd: workspace.rootPath }));
+    const provider = createModelProvider({ name: "stub" });
+    const result = await runTask({ task, provider, tools, workspace });
 
     return {
-      exitCode: 0,
+      exitCode: result.exitCode,
       stdout: [
-        "Session created.",
-        `Task: ${session.task}`,
-        "The agent loop is not implemented yet."
+        "Task complete.",
+        `Task: ${task}`,
+        `Summary: ${result.summary}`,
+        `Trace events: ${result.trace.events.length}`
       ].join("\n") + "\n",
       stderr: ""
     };

@@ -11,16 +11,16 @@ test("creates a welcome message with the project name and purpose", () => {
   assert.match(message, /from first principles/i);
 });
 
-test("prints the welcome message when no command is provided", () => {
-  const result = runCli([]);
+test("prints the welcome message when no command is provided", async () => {
+  const result = await runCli([]);
 
   assert.equal(result.exitCode, 0);
   assert.match(result.stdout, /ForgeCode/);
   assert.equal(result.stderr, "");
 });
 
-test("prints the current version", () => {
-  const result = runCli(["--version"]);
+test("prints the current version", async () => {
+  const result = await runCli(["--version"]);
 
   assert.equal(result.exitCode, 0);
   assert.equal(result.stdout.trim(), "0.1.0");
@@ -35,9 +35,9 @@ test("creates help text with available commands", () => {
   assert.match(message, /--version/);
 });
 
-test("prints help for --help and -h", () => {
+test("prints help for --help and -h", async () => {
   for (const flag of ["--help", "-h"]) {
-    const result = runCli([flag]);
+    const result = await runCli([flag]);
 
     assert.equal(result.exitCode, 0);
     assert.match(result.stdout, /Usage: forgecode/);
@@ -45,8 +45,8 @@ test("prints help for --help and -h", () => {
   }
 });
 
-test("returns an error for unknown commands", () => {
-  const result = runCli(["frobnicate"]);
+test("returns an error for unknown commands", async () => {
+  const result = await runCli(["frobnicate"]);
 
   assert.equal(result.exitCode, 1);
   assert.equal(result.stdout, "");
@@ -54,18 +54,18 @@ test("returns an error for unknown commands", () => {
   assert.match(result.stderr, /forgecode --help/);
 });
 
-test("creates an agent session for the run command", () => {
-  const result = runCli(["run", "build", "a", "tool", "registry"]);
+test("runs the agent loop for the run command", async () => {
+  const result = await runCli(["run", "build", "a", "tool", "registry"]);
 
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /Session created/);
+  assert.match(result.stdout, /Task complete/);
   assert.match(result.stdout, /build a tool registry/);
-  assert.match(result.stdout, /agent loop is not implemented yet/i);
+  assert.match(result.stdout, /No provider actions configured/);
   assert.equal(result.stderr, "");
 });
 
-test("requires a task for the run command", () => {
-  const result = runCli(["run"]);
+test("requires a task for the run command", async () => {
+  const result = await runCli(["run"]);
 
   assert.equal(result.exitCode, 1);
   assert.equal(result.stdout, "");
