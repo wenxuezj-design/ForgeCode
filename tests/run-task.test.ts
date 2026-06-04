@@ -39,3 +39,25 @@ test("runs a deterministic coding loop with plan, tool calls, and final summary"
     "final"
   ]);
 });
+
+test("records failed verification command output so the provider can revise", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "run_command",
+    description: "Fake verification command.",
+    async execute() {
+      return { content: "exitCode=1\nstdout=\nstderr=test failed" };
+    }
+  });
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "run_command", input: { command: "npm", args: ["test"] } },
+    { kind: "final", content: "Verification failed and was reported." }
+  ]);
+
+  const result = await runTask({ task: "Run verification", provider, tools, workspace, maxSteps: 5 });
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.trace.events.map((event) => event.message).join("\n"), /stderr=test failed/);
+});
