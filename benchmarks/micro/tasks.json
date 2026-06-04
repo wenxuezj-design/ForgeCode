@@ -1,0 +1,26 @@
+[
+  {
+    "id": "readme-smoke",
+    "task": "Inspect README and report the project purpose.",
+    "verification": {
+      "command": "npm",
+      "args": ["test"]
+    }
+  },
+  {
+    "id": "typecheck-smoke",
+    "task": "Verify the TypeScript project still typechecks.",
+    "verification": {
+      "command": "npm",
+      "args": ["run", "typecheck"]
+    }
+  },
+  {
+    "id": "build-smoke",
+    "task": "Verify the project can build compiled output.",
+    "verification": {
+      "command": "npm",
+      "args": ["run", "build"]
+    }
+  }
+]

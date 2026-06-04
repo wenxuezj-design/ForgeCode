@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "bench:micro": "npm run build --silent && node dist/benchmarks/micro-runner.js",
     "dev": "npm run build --silent && node dist/cli.js",
     "test": "npm run build --silent && node --experimental-strip-types --test tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
