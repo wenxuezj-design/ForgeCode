@@ -66,7 +66,7 @@ test("records failed verification command output so the provider can revise", as
 
 test("emits plan, todo, tool progress, and final summary events", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
-  await writeFile(join(root, "README.md"), "# Old\n");
+  await writeFile(join(root, "README.md"), "# Old\nSENTINEL_LARGE_TOOL_RESULT_CONTENT\n");
   const workspace = createWorkspace(root);
   const tools = createToolRegistry();
   const workspaceTools = createWorkspaceTools(workspace);
@@ -114,8 +114,12 @@ test("emits plan, todo, tool progress, and final summary events", async () => {
 
   assert.equal(typeof events[2]?.message, "string");
   assert.match(events[2]?.message as string, /read_file/);
+  assert.doesNotMatch(events[2]?.message as string, /README\.md/);
+  assert.equal("input" in (events[2] ?? {}), false);
   assert.equal(typeof events[3]?.message, "string");
   assert.match(events[3]?.message as string, /read_file/);
+  assert.doesNotMatch(events[3]?.message as string, /SENTINEL_LARGE_TOOL_RESULT_CONTENT/);
+  assert.equal("content" in (events[3] ?? {}), false);
   assert.equal((events[4]?.summary as { task?: string } | undefined)?.task, "Inspect README");
   assert.equal(result.summaryEvidence.task, "Inspect README");
   assert.ok(result.summaryEvidence.traceEventCount >= 1);
@@ -170,17 +174,136 @@ test("derives modified files, verification, blocked actions, and risks from trac
   assert.deepEqual(result.summaryEvidence.remainingRisks, []);
 });
 
+test("preserves blocked action kind and path in summary evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "fake_blocked",
+    description: "Fake blocked action.",
+    async execute() {
+      return {
+        success: false,
+        content: "Blocked README.md",
+        metadata: {
+          blockedAction: {
+            kind: "user_changes",
+            path: "README.md",
+            reason: "Refusing to overwrite user-modified file."
+          }
+        }
+      };
+    }
+  });
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "fake_blocked", input: {} },
+    { kind: "final", content: "Blocked unsafe write." }
+  ]);
+
+  const result = await runTask({ task: "Protect README", provider, tools, workspace, maxSteps: 10 });
+  const summaryEvent = result.trace.events.find((event) => event.type === "summary");
+  const serializedBlockedActions = summaryEvent?.metadata?.blockedActions as Array<Record<string, unknown>> | undefined;
+
+  assert.deepEqual(result.summaryEvidence.blockedActions[0], {
+    kind: "user_changes",
+    path: "README.md",
+    reason: "Refusing to overwrite user-modified file."
+  });
+  assert.deepEqual(serializedBlockedActions?.[0], {
+    kind: "user_changes",
+    path: "README.md",
+    reason: "Refusing to overwrite user-modified file."
+  });
+});
+
+test("preserves verification output and reports failed verification risk", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "fake_verify_fail",
+    description: "Fake failing verification.",
+    async execute() {
+      return {
+        success: true,
+        content: "exitCode=1\nstdout=\nstderr=test failed",
+        metadata: {
+          verification: {
+            command: "npm test",
+            exitCode: 1,
+            output: "stderr=test failed",
+            passed: false
+          }
+        }
+      };
+    }
+  });
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "fake_verify_fail", input: {} },
+    { kind: "final", content: "Verification failed." }
+  ]);
+
+  const result = await runTask({ task: "Verify failure", provider, tools, workspace, maxSteps: 10 });
+  const summaryEvent = result.trace.events.find((event) => event.type === "summary");
+  const serializedVerification = summaryEvent?.metadata?.verification as Array<Record<string, unknown>> | undefined;
+
+  assert.equal(result.summaryEvidence.verification[0]?.output, "stderr=test failed");
+  assert.equal(serializedVerification?.[0]?.output, "stderr=test failed");
+  assert.deepEqual(result.summaryEvidence.remainingRisks, ["One or more verification commands failed."]);
+});
+
+test("reports missing verification for modified files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "fake_unverified_write",
+    description: "Fake unverified write.",
+    async execute() {
+      return {
+        success: true,
+        content: "Wrote README.md",
+        metadata: {
+          modifiedFiles: ["README.md"]
+        }
+      };
+    }
+  });
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "fake_unverified_write", input: {} },
+    { kind: "final", content: "Updated README without verification." }
+  ]);
+
+  const result = await runTask({ task: "Unverified write", provider, tools, workspace, maxSteps: 10 });
+
+  assert.deepEqual(result.summaryEvidence.modifiedFiles, ["README.md"]);
+  assert.deepEqual(result.summaryEvidence.remainingRisks, ["No verification command was recorded."]);
+});
+
 test("collects remaining risks from trace metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
   const workspace = createWorkspace(root);
   const tools = createToolRegistry();
   tools.register({
-    name: "fake_risk",
-    description: "Fake remaining risk.",
+    name: "fake_string_risk",
+    description: "Fake string remaining risk.",
     async execute() {
       return {
         success: true,
-        content: "Recorded risks",
+        content: "Recorded string risk",
+        metadata: {
+          remainingRisks: "Code owner sign-off pending."
+        }
+      };
+    }
+  });
+  tools.register({
+    name: "fake_array_risk",
+    description: "Fake array remaining risks.",
+    async execute() {
+      return {
+        success: true,
+        content: "Recorded array risks",
         metadata: {
           remainingRisks: ["Manual QA is still pending.", "Release notes need review."]
         }
@@ -188,13 +311,15 @@ test("collects remaining risks from trace metadata", async () => {
     }
   });
   const provider = createScriptedProvider([
-    { kind: "tool", toolName: "fake_risk", input: {} },
+    { kind: "tool", toolName: "fake_string_risk", input: {} },
+    { kind: "tool", toolName: "fake_array_risk", input: {} },
     { kind: "final", content: "Recorded risk metadata." }
   ]);
 
   const result = await runTask({ task: "Record risks", provider, tools, workspace, maxSteps: 10 });
 
   assert.deepEqual(result.summaryEvidence.remainingRisks, [
+    "Code owner sign-off pending.",
     "Manual QA is still pending.",
     "Release notes need review."
   ]);

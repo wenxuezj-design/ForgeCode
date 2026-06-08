@@ -18,11 +18,11 @@ export interface RunTaskTodo {
 export type RunTaskEvent =
   | { type: "plan_started"; message: string }
   | { type: "todo_updated"; message: string; todos: RunTaskTodo[] }
-  | { type: "tool_started"; message: string; toolName: string; input?: unknown }
-  | { type: "tool_finished"; message: string; toolName: string; success: boolean; content?: string; metadata?: TraceMetadata }
-  | { type: "approval_required"; message: string; blockedAction?: JsonValue }
-  | { type: "diff_available"; message: string; path: string; diff?: string }
-  | { type: "verification_result"; message: string; passed: boolean; verification?: JsonValue }
+  | { type: "tool_started"; message: string; toolName: string }
+  | { type: "tool_finished"; message: string; toolName: string; success: boolean }
+  | { type: "approval_required"; message: string }
+  | { type: "diff_available"; message: string; path: string }
+  | { type: "verification_result"; message: string; passed: boolean }
   | { type: "final_summary"; message: string; summary: RunSummaryEvidence };
 
 export interface RunTaskOptions {
@@ -148,6 +148,10 @@ function verificationEvidenceToJson(evidence: VerificationEvidence): JsonValue {
     value.exitCode = evidence.exitCode;
   }
 
+  if (evidence.output !== undefined) {
+    value.output = evidence.output;
+  }
+
   return value;
 }
 
@@ -162,6 +166,14 @@ function blockedActionEvidenceToJson(evidence: BlockedActionEvidence): JsonValue
 
   if (evidence.command !== undefined) {
     value.command = evidence.command;
+  }
+
+  if (evidence.kind !== undefined) {
+    value.kind = evidence.kind;
+  }
+
+  if (evidence.path !== undefined) {
+    value.path = evidence.path;
   }
 
   if (evidence.toolName !== undefined) {
@@ -234,16 +246,16 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
       const toolMessage = `${action.toolName} ${JSON.stringify(action.input)}`;
 
       session.trace.record({ type: "tool_call", message: toolMessage });
-      emit(options, { type: "tool_started", message: toolMessage, toolName: action.toolName, input: action.input });
+      emit(options, { type: "tool_started", message: `Starting ${action.toolName}`, toolName: action.toolName });
       const result = await options.tools.execute(action.toolName, action.input);
+      const success = result.success ?? true;
+
       session.trace.record({ type: "tool_result", message: result.content, metadata: result.metadata });
       emit(options, {
         type: "tool_finished",
-        message: `${action.toolName} ${result.content}`,
+        message: `${action.toolName} ${success ? "succeeded" : "failed"}`,
         toolName: action.toolName,
-        success: result.success ?? true,
-        content: result.content,
-        metadata: result.metadata
+        success
       });
 
       if (result.metadata) {
@@ -253,7 +265,7 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
             message: readReason(blockedAction),
             metadata: { blockedAction }
           });
-          emit(options, { type: "approval_required", message: readReason(blockedAction), blockedAction });
+          emit(options, { type: "approval_required", message: readReason(blockedAction) });
         }
 
         if (typeof result.metadata.diff === "string") {
@@ -269,7 +281,7 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
                 modifiedFiles: [path]
               }
             });
-            emit(options, { type: "diff_available", message: `Diff available for ${path}`, path, diff: result.metadata.diff });
+            emit(options, { type: "diff_available", message: `Diff available for ${path}`, path });
           }
         }
 
@@ -284,8 +296,7 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
           emit(options, {
             type: "verification_result",
             message,
-            passed: readVerificationPassed(verification),
-            verification
+            passed: readVerificationPassed(verification)
           });
         }
       }

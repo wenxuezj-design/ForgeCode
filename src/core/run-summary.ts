@@ -3,6 +3,7 @@ import type { JsonValue, TraceEvent } from "../agent/trace.js";
 export interface VerificationEvidence {
   command: string;
   exitCode?: number;
+  output?: string;
   passed: boolean;
 }
 
@@ -10,6 +11,8 @@ export interface BlockedActionEvidence {
   reason: string;
   action?: string;
   command?: string;
+  kind?: string;
+  path?: string;
   toolName?: string;
 }
 
@@ -60,6 +63,10 @@ function toVerificationEvidence(value: JsonValue): VerificationEvidence | undefi
     evidence.exitCode = exitCode;
   }
 
+  if (typeof value.output === "string") {
+    evidence.output = value.output;
+  }
+
   return evidence;
 }
 
@@ -82,6 +89,14 @@ function toBlockedActionEvidence(value: JsonValue): BlockedActionEvidence | unde
 
   if (typeof value.command === "string") {
     evidence.command = value.command;
+  }
+
+  if (typeof value.kind === "string") {
+    evidence.kind = value.kind;
+  }
+
+  if (typeof value.path === "string") {
+    evidence.path = value.path;
   }
 
   if (typeof value.toolName === "string") {
@@ -123,6 +138,7 @@ export function createRunSummaryEvidence(
   const seenVerification = new Set<string>();
   const seenBlockedActions = new Set<string>();
   const seenRemainingRisks = new Set<string>();
+  let hasExplicitRemainingRisks = false;
 
   for (const event of events) {
     for (const value of asJsonValues(event.metadata?.verification)) {
@@ -143,6 +159,7 @@ export function createRunSummaryEvidence(
 
     for (const value of asJsonValues(event.metadata?.remainingRisks)) {
       if (typeof value === "string") {
+        hasExplicitRemainingRisks = true;
         addUnique(remainingRisks, value, value, seenRemainingRisks);
       }
     }
@@ -161,11 +178,18 @@ export function createRunSummaryEvidence(
     );
   }
 
-  if (
+  if (modifiedFiles.length > 0 && verification.length === 0) {
+    addUnique(
+      remainingRisks,
+      "No verification command was recorded.",
+      "No verification command was recorded.",
+      seenRemainingRisks
+    );
+  } else if (
     modifiedFiles.length === 0 &&
     blockedActions.length === 0 &&
     verification.length === 0 &&
-    remainingRisks.length === 0
+    !hasExplicitRemainingRisks
   ) {
     addUnique(
       remainingRisks,

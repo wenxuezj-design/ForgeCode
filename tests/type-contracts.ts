@@ -1,4 +1,12 @@
-import type { JsonValue, TraceEvent, TraceMetadata, ToolResult } from "../src/index.js";
+import type {
+  JsonValue,
+  RunSummaryEvidence,
+  RunTaskEvent,
+  RunTaskTodo,
+  TraceEvent,
+  TraceMetadata,
+  ToolResult
+} from "../src/index.js";
 
 const traceMetadata: TraceMetadata = {
   modifiedFiles: ["README.md"],
@@ -21,10 +29,33 @@ const toolResult = {
   }
 } satisfies ToolResult;
 
+const runTaskTodo = {
+  content: "Inspect README",
+  status: "in_progress"
+} satisfies RunTaskTodo;
+
+const runSummaryEvidence = {
+  task: "Inspect README",
+  providerFinal: "Done.",
+  modifiedFiles: [],
+  verification: [],
+  blockedActions: [],
+  remainingRisks: [],
+  traceEventCount: 1
+} satisfies RunSummaryEvidence;
+
+const runTaskEvent = {
+  type: "final_summary",
+  message: "Done.",
+  summary: runSummaryEvidence
+} satisfies RunTaskEvent;
+
 const jsonValue: JsonValue = {
   summaryType: summaryEvent.type,
   toolSucceeded: toolResult.success ?? null,
-  metadata: traceMetadata
+  metadata: traceMetadata,
+  todoStatus: runTaskTodo.status,
+  runTaskEventType: runTaskEvent.type
 };
 
 void jsonValue;
