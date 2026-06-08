@@ -32,11 +32,13 @@ test("runs a deterministic coding loop with plan, tool calls, and final summary"
   assert.match(result.summary, /Updated README/);
   assert.deepEqual(result.trace.events.map((event) => event.type), [
     "plan",
+    "todo",
     "tool_call",
     "tool_result",
     "tool_call",
     "tool_result",
-    "final"
+    "final",
+    "summary"
   ]);
 });
 
@@ -60,4 +62,90 @@ test("records failed verification command output so the provider can revise", as
 
   assert.equal(result.exitCode, 0);
   assert.match(result.trace.events.map((event) => event.message).join("\n"), /stderr=test failed/);
+});
+
+test("emits plan, todo, tool progress, and final summary events", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  await writeFile(join(root, "README.md"), "# Old\n");
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  const workspaceTools = createWorkspaceTools(workspace);
+  tools.register(workspaceTools.readFile);
+  const events: Array<{ type: string }> = [];
+  const provider = createScriptedProvider([
+    { kind: "plan", content: "Read README\nReport result" },
+    { kind: "tool", toolName: "read_file", input: { path: "README.md" } },
+    { kind: "final", content: "Read README." }
+  ]);
+
+  const result = await runTask({
+    task: "Inspect README",
+    provider,
+    tools,
+    workspace,
+    maxSteps: 10,
+    onEvent(event) {
+      events.push(event);
+    }
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(events.map((event) => event.type), [
+    "plan_started",
+    "todo_updated",
+    "tool_started",
+    "tool_finished",
+    "final_summary"
+  ]);
+  assert.equal(result.summaryEvidence.task, "Inspect README");
+  assert.ok(result.summaryEvidence.traceEventCount >= 1);
+});
+
+test("derives modified files, verification, blocked actions, and risks from trace metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "fake_write",
+    description: "Fake write.",
+    async execute() {
+      return {
+        success: true,
+        content: "Wrote README.md",
+        metadata: {
+          modifiedFiles: ["README.md"],
+          diff: "--- README.md\n+++ README.md\n@@\n-Old\n+New"
+        }
+      };
+    }
+  });
+  tools.register({
+    name: "fake_verify",
+    description: "Fake verification.",
+    async execute() {
+      return {
+        success: true,
+        content: "exitCode=0\nstdout=ok\nstderr=",
+        metadata: {
+          verification: {
+            command: "npm test",
+            exitCode: 0,
+            passed: true
+          }
+        }
+      };
+    }
+  });
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "fake_write", input: {} },
+    { kind: "tool", toolName: "fake_verify", input: {} },
+    { kind: "final", content: "Updated README and verified." }
+  ]);
+
+  const result = await runTask({ task: "Update README", provider, tools, workspace, maxSteps: 10 });
+
+  assert.deepEqual(result.summaryEvidence.modifiedFiles, ["README.md"]);
+  assert.equal(result.summaryEvidence.verification[0]?.passed, true);
+  assert.deepEqual(result.summaryEvidence.blockedActions, []);
+  assert.deepEqual(result.summaryEvidence.remainingRisks, []);
 });
