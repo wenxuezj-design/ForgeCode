@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import { createCommandTool } from "../dist/tools/command-tool.js";
@@ -91,15 +94,61 @@ test("command tool returns structured command metadata", async () => {
 });
 
 test("command tool refuses destructive commands by default", async () => {
-  const tool = createCommandTool({ cwd: process.cwd() });
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
 
-  const result = await tool.execute({ command: "rm", args: ["README.md"] });
+  const result = await tool.execute({ command: "rm", args: ["sentinel.txt"] });
 
   assert.equal(result.success, false);
   assert.match(result.content, /requires approval/i);
   assert.deepEqual(result.metadata?.blockedAction, {
     kind: "approval",
     reason: "Destructive command requires approval.",
-    command: "rm README.md"
+    command: "rm sentinel.txt"
+  });
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool resolves spawn errors with structured verification metadata", async () => {
+  const tool = createCommandTool({ cwd: process.cwd() });
+
+  const result = await tool.execute({ command: "definitely-not-a-real-forgecode-command", args: [] });
+
+  assert.equal(result.success, false);
+  assert.match(result.content, /exitCode=1/);
+  assert.match(result.content, /stdout=/);
+  assert.match(result.content, /stderr=.*definitely-not-a-real-forgecode-command/);
+  assert.equal(result.metadata?.risk, "unknown");
+  assert.deepEqual(result.metadata?.verification, {
+    command: "definitely-not-a-real-forgecode-command",
+    exitCode: 1,
+    passed: false,
+    output: result.content
+  });
+});
+
+test("command tool does not refuse read-only git commands by default", async () => {
+  const tool = createCommandTool({ cwd: process.cwd() });
+
+  const result = await tool.execute({ command: "git", args: ["status", "--short"] });
+
+  assert.equal(result.success, true);
+  assert.equal(result.metadata?.blockedAction, undefined);
+});
+
+test("command tool refuses force flags by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "node", args: ["--force"] });
+
+  assert.equal(result.success, false);
+  assert.match(result.content, /requires approval/i);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "approval",
+    reason: "Destructive command requires approval.",
+    command: "node --force"
   });
 });

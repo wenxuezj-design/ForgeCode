@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { Tool } from "./registry.js";
+import type { Tool, ToolResult } from "./registry.js";
 
 export type ApprovalPolicy = "never" | "allow-safe" | "allow-all";
 export type CommandRisk = "safe" | "unknown" | "destructive";
@@ -19,7 +19,7 @@ function formatCommand(command: string, args: string[]): string {
 }
 
 function classifyCommand(command: string, args: string[]): CommandRisk {
-  const destructiveCommands = new Set(["rm", "rmdir", "git"]);
+  const destructiveCommands = new Set(["rm", "rmdir"]);
 
   if (command === "git" && ["reset", "clean", "checkout"].includes(args[0] ?? "")) {
     return "destructive";
@@ -34,6 +34,34 @@ function classifyCommand(command: string, args: string[]): CommandRisk {
   }
 
   return "unknown";
+}
+
+function commandResult(
+  risk: CommandRisk,
+  formattedCommand: string,
+  exitCode: number,
+  stdout: string,
+  stderr: string
+): ToolResult {
+  const content = [
+    `exitCode=${exitCode}`,
+    `stdout=${stdout.trim()}`,
+    `stderr=${stderr.trim()}`
+  ].join("\n");
+
+  return {
+    success: exitCode === 0,
+    content,
+    metadata: {
+      risk,
+      verification: {
+        command: formattedCommand,
+        exitCode,
+        passed: exitCode === 0,
+        output: content
+      }
+    }
+  };
 }
 
 function parseCommandInput(input: unknown): CommandInput {
@@ -84,7 +112,7 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
         };
       }
 
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         const child = spawn(command, args, {
           cwd: options.cwd,
           shell: false
@@ -98,28 +126,13 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
         child.stderr.on("data", (chunk: Buffer) => {
           stderr += chunk.toString();
         });
-        child.on("error", reject);
+        child.on("error", (error: Error) => {
+          resolve(commandResult(risk, formattedCommand, 1, stdout, error.message));
+        });
         child.on("close", (exitCode) => {
           const actualExitCode = exitCode ?? 1;
-          const content = [
-            `exitCode=${actualExitCode}`,
-            `stdout=${stdout.trim()}`,
-            `stderr=${stderr.trim()}`
-          ].join("\n");
 
-          resolve({
-            success: actualExitCode === 0,
-            content,
-            metadata: {
-              risk,
-              verification: {
-                command: formattedCommand,
-                exitCode: actualExitCode,
-                passed: actualExitCode === 0,
-                output: content
-              }
-            }
-          });
+          resolve(commandResult(risk, formattedCommand, actualExitCode, stdout, stderr));
         });
       });
     }

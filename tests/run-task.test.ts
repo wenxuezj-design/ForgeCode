@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import { runTask } from "../dist/core/run-task.js";
 import { createScriptedProvider } from "../dist/providers/scripted-provider.js";
+import { createCommandTool } from "../dist/tools/command-tool.js";
 import { createToolRegistry } from "../dist/tools/registry.js";
 import { createWorkspaceTools } from "../dist/tools/workspace-tools.js";
 import { createWorkspace } from "../dist/workspace/workspace.js";
@@ -323,6 +324,41 @@ test("preserves blocked action kind and path in summary evidence", async () => {
     path: "README.md",
     reason: "Refusing to overwrite user-modified file."
   });
+});
+
+test("records real command tool refusal as approval evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  await writeFile(join(root, "sentinel.txt"), "keep me\n");
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register(createCommandTool({ cwd: root }));
+  const events: Array<Record<string, unknown>> = [];
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "run_command", input: { command: "rm", args: ["sentinel.txt"] } },
+    { kind: "final", content: "Refused destructive command." }
+  ]);
+
+  const result = await runTask({
+    task: "Remove sentinel",
+    provider,
+    tools,
+    workspace,
+    maxSteps: 10,
+    onEvent(event) {
+      events.push(event);
+    }
+  });
+  const approvalEvent = result.trace.events.find((event) => event.type === "approval");
+
+  assert.equal(await readFile(join(root, "sentinel.txt"), "utf8"), "keep me\n");
+  assert.equal(events.some((event) => event.type === "approval_required"), true);
+  assert.equal(approvalEvent?.message, "Destructive command requires approval.");
+  assert.deepEqual(result.summaryEvidence.blockedActions[0], {
+    kind: "approval",
+    reason: "Destructive command requires approval.",
+    command: "rm sentinel.txt"
+  });
+  assert.equal(result.summaryEvidence.remainingRisks.includes("Destructive command requires approval."), true);
 });
 
 test("preserves verification output and reports failed verification risk", async () => {
