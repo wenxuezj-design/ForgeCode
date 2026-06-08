@@ -1,5 +1,9 @@
+import type { TraceMetadata } from "../agent/trace.js";
+
 export interface ToolResult {
   content: string;
+  success?: boolean;
+  metadata?: TraceMetadata;
 }
 
 export interface Tool {

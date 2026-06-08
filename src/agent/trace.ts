@@ -1,9 +1,24 @@
-export type TraceEventType = "plan" | "tool_call" | "tool_result" | "verification" | "final";
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+export type TraceMetadata = Record<string, JsonValue>;
+
+export type TraceEventType =
+  | "plan"
+  | "tool_call"
+  | "tool_result"
+  | "verification"
+  | "final"
+  | "todo"
+  | "approval"
+  | "diff"
+  | "protection"
+  | "context"
+  | "summary";
 
 export interface TraceEvent {
   type: TraceEventType;
   message: string;
   timestamp: string;
+  metadata?: TraceMetadata;
 }
 
 export interface TraceRecorder {

@@ -37,6 +37,34 @@ test("registry rejects unknown tools during execution", async () => {
   );
 });
 
+test("registry preserves structured tool result metadata", async () => {
+  const registry = createToolRegistry();
+
+  registry.register({
+    name: "structured",
+    description: "Return metadata.",
+    async execute() {
+      return {
+        success: true,
+        content: "ok",
+        metadata: {
+          kind: "diff",
+          path: "README.md"
+        }
+      };
+    }
+  });
+
+  assert.deepEqual(await registry.execute("structured", {}), {
+    success: true,
+    content: "ok",
+    metadata: {
+      kind: "diff",
+      path: "README.md"
+    }
+  });
+});
+
 test("command tool captures stdout, stderr, and exit code", async () => {
   const tool = createCommandTool({ cwd: process.cwd() });
 
