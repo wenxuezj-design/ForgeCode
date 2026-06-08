@@ -1,13 +1,39 @@
 import { spawn } from "node:child_process";
 import type { Tool } from "./registry.js";
 
+export type ApprovalPolicy = "never" | "allow-safe" | "allow-all";
+export type CommandRisk = "safe" | "unknown" | "destructive";
+
 export interface CreateCommandToolOptions {
   cwd: string;
+  approvalPolicy?: ApprovalPolicy;
 }
 
 interface CommandInput {
   command: string;
   args: string[];
+}
+
+function formatCommand(command: string, args: string[]): string {
+  return [command, ...args].join(" ");
+}
+
+function classifyCommand(command: string, args: string[]): CommandRisk {
+  const destructiveCommands = new Set(["rm", "rmdir", "git"]);
+
+  if (command === "git" && ["reset", "clean", "checkout"].includes(args[0] ?? "")) {
+    return "destructive";
+  }
+
+  if (destructiveCommands.has(command) || args.includes("--force") || args.includes("-f")) {
+    return "destructive";
+  }
+
+  if (command === "npm" || command === "node" || command === "tsc" || command === "npx") {
+    return "safe";
+  }
+
+  return "unknown";
 }
 
 function parseCommandInput(input: unknown): CommandInput {
@@ -39,6 +65,24 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
     description: "Run a command in the workspace and capture output.",
     async execute(input) {
       const { command, args } = parseCommandInput(input);
+      const approvalPolicy = options.approvalPolicy ?? "never";
+      const risk = classifyCommand(command, args);
+      const formattedCommand = formatCommand(command, args);
+
+      if (risk === "destructive" && approvalPolicy !== "allow-all") {
+        return {
+          success: false,
+          content: `Command requires approval: ${formattedCommand}`,
+          metadata: {
+            risk,
+            blockedAction: {
+              kind: "approval",
+              reason: "Destructive command requires approval.",
+              command: formattedCommand
+            }
+          }
+        };
+      }
 
       return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
@@ -56,12 +100,25 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
         });
         child.on("error", reject);
         child.on("close", (exitCode) => {
+          const actualExitCode = exitCode ?? 1;
+          const content = [
+            `exitCode=${actualExitCode}`,
+            `stdout=${stdout.trim()}`,
+            `stderr=${stderr.trim()}`
+          ].join("\n");
+
           resolve({
-            content: [
-              `exitCode=${exitCode ?? 1}`,
-              `stdout=${stdout.trim()}`,
-              `stderr=${stderr.trim()}`
-            ].join("\n")
+            success: actualExitCode === 0,
+            content,
+            metadata: {
+              risk,
+              verification: {
+                command: formattedCommand,
+                exitCode: actualExitCode,
+                passed: actualExitCode === 0,
+                output: content
+              }
+            }
           });
         });
       });

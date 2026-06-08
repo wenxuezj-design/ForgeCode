@@ -74,3 +74,32 @@ test("command tool captures stdout, stderr, and exit code", async () => {
   assert.match(result.content, /stdout=v/);
   assert.match(result.content, /stderr=/);
 });
+
+test("command tool returns structured command metadata", async () => {
+  const tool = createCommandTool({ cwd: process.cwd() });
+
+  const result = await tool.execute({ command: "node", args: ["--version"] });
+
+  assert.equal(result.success, true);
+  assert.equal(result.metadata?.risk, "safe");
+  assert.deepEqual(result.metadata?.verification, {
+    command: "node --version",
+    exitCode: 0,
+    passed: true,
+    output: result.content
+  });
+});
+
+test("command tool refuses destructive commands by default", async () => {
+  const tool = createCommandTool({ cwd: process.cwd() });
+
+  const result = await tool.execute({ command: "rm", args: ["README.md"] });
+
+  assert.equal(result.success, false);
+  assert.match(result.content, /requires approval/i);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "approval",
+    reason: "Destructive command requires approval.",
+    command: "rm README.md"
+  });
+});
