@@ -222,7 +222,7 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
   for (let step = 0; step < maxSteps; step += 1) {
     const action = await options.provider.nextAction({
       task: options.task,
-      events: session.trace.events
+      events: [...session.trace.events]
     });
 
     if (action.kind === "plan") {

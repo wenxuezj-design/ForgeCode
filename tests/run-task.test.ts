@@ -64,6 +64,37 @@ test("records failed verification command output so the provider can revise", as
   assert.match(result.trace.events.map((event) => event.message).join("\n"), /stderr=test failed/);
 });
 
+test("passes provider trace events as snapshots", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  let firstEvents: unknown[] | undefined;
+  let calls = 0;
+  const provider = {
+    name: "snapshot-test",
+    async complete() {
+      return { role: "assistant" as const, content: "unused" };
+    },
+    async nextAction(context: { events: unknown[] }) {
+      if (calls === 0) {
+        firstEvents = context.events;
+      }
+
+      calls += 1;
+
+      return calls === 1
+        ? { kind: "plan" as const, content: "Inspect project" }
+        : { kind: "final" as const, content: "Done." };
+    }
+  };
+
+  const result = await runTask({ task: "Inspect project", provider, tools, workspace, maxSteps: 5 });
+
+  assert.equal(result.exitCode, 0);
+  assert.ok(result.trace.events.length > 0);
+  assert.equal(firstEvents?.length, 0);
+});
+
 test("emits plan, todo, tool progress, and final summary events", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
   await writeFile(join(root, "README.md"), "# Old\nSENTINEL_LARGE_TOOL_RESULT_CONTENT\n");
