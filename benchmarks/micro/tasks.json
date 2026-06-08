@@ -1,7 +1,7 @@
 [
   {
-    "id": "readme-smoke",
-    "task": "Inspect README and report the project purpose.",
+    "id": "test-suite-smoke",
+    "task": "Verify the project test suite passes.",
     "verification": {
       "command": "npm",
       "args": ["test"]
