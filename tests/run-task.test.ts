@@ -71,7 +71,7 @@ test("emits plan, todo, tool progress, and final summary events", async () => {
   const tools = createToolRegistry();
   const workspaceTools = createWorkspaceTools(workspace);
   tools.register(workspaceTools.readFile);
-  const events: Array<{ type: string }> = [];
+  const events: Array<Record<string, unknown>> = [];
   const provider = createScriptedProvider([
     { kind: "plan", content: "Read README\nReport result" },
     { kind: "tool", toolName: "read_file", input: { path: "README.md" } },
@@ -97,6 +97,26 @@ test("emits plan, todo, tool progress, and final summary events", async () => {
     "tool_finished",
     "final_summary"
   ]);
+  assert.deepEqual(events[0], {
+    type: "plan_started",
+    message: "Read README\nReport result"
+  });
+
+  assert.equal(events[1]?.type, "todo_updated");
+  assert.deepEqual((events[1]?.todos as unknown[] | undefined)?.[0], {
+    content: "Read README",
+    status: "in_progress"
+  });
+  assert.deepEqual((events[1]?.todos as unknown[] | undefined)?.[1], {
+    content: "Report result",
+    status: "pending"
+  });
+
+  assert.equal(typeof events[2]?.message, "string");
+  assert.match(events[2]?.message as string, /read_file/);
+  assert.equal(typeof events[3]?.message, "string");
+  assert.match(events[3]?.message as string, /read_file/);
+  assert.equal((events[4]?.summary as { task?: string } | undefined)?.task, "Inspect README");
   assert.equal(result.summaryEvidence.task, "Inspect README");
   assert.ok(result.summaryEvidence.traceEventCount >= 1);
 });
@@ -148,4 +168,34 @@ test("derives modified files, verification, blocked actions, and risks from trac
   assert.equal(result.summaryEvidence.verification[0]?.passed, true);
   assert.deepEqual(result.summaryEvidence.blockedActions, []);
   assert.deepEqual(result.summaryEvidence.remainingRisks, []);
+});
+
+test("collects remaining risks from trace metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "fake_risk",
+    description: "Fake remaining risk.",
+    async execute() {
+      return {
+        success: true,
+        content: "Recorded risks",
+        metadata: {
+          remainingRisks: ["Manual QA is still pending.", "Release notes need review."]
+        }
+      };
+    }
+  });
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "fake_risk", input: {} },
+    { kind: "final", content: "Recorded risk metadata." }
+  ]);
+
+  const result = await runTask({ task: "Record risks", provider, tools, workspace, maxSteps: 10 });
+
+  assert.deepEqual(result.summaryEvidence.remainingRisks, [
+    "Manual QA is still pending.",
+    "Release notes need review."
+  ]);
 });

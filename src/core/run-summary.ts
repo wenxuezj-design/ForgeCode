@@ -119,8 +119,10 @@ export function createRunSummaryEvidence(
   const modifiedFiles = collectModifiedFiles(events);
   const verification: VerificationEvidence[] = [];
   const blockedActions: BlockedActionEvidence[] = [];
+  const remainingRisks: string[] = [];
   const seenVerification = new Set<string>();
   const seenBlockedActions = new Set<string>();
+  const seenRemainingRisks = new Set<string>();
 
   for (const event of events) {
     for (const value of asJsonValues(event.metadata?.verification)) {
@@ -138,10 +140,13 @@ export function createRunSummaryEvidence(
         addUnique(blockedActions, evidence, JSON.stringify(evidence), seenBlockedActions);
       }
     }
-  }
 
-  const remainingRisks: string[] = [];
-  const seenRemainingRisks = new Set<string>();
+    for (const value of asJsonValues(event.metadata?.remainingRisks)) {
+      if (typeof value === "string") {
+        addUnique(remainingRisks, value, value, seenRemainingRisks);
+      }
+    }
+  }
 
   for (const action of blockedActions) {
     addUnique(remainingRisks, action.reason, action.reason, seenRemainingRisks);
@@ -156,7 +161,12 @@ export function createRunSummaryEvidence(
     );
   }
 
-  if (modifiedFiles.length === 0 && blockedActions.length === 0 && verification.length === 0) {
+  if (
+    modifiedFiles.length === 0 &&
+    blockedActions.length === 0 &&
+    verification.length === 0 &&
+    remainingRisks.length === 0
+  ) {
     addUnique(
       remainingRisks,
       "No verification command was recorded.",

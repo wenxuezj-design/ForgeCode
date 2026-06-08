@@ -11,20 +11,19 @@ import {
 } from "./run-summary.js";
 
 export interface RunTaskTodo {
-  id: string;
-  text: string;
-  status: "pending";
+  content: string;
+  status: "pending" | "in_progress" | "completed";
 }
 
 export type RunTaskEvent =
-  | { type: "plan_started"; plan: string }
-  | { type: "todo_updated"; todos: RunTaskTodo[] }
-  | { type: "tool_started"; toolName: string; input: unknown }
-  | { type: "tool_finished"; toolName: string; success: boolean; content: string; metadata?: TraceMetadata }
-  | { type: "approval_required"; blockedAction: JsonValue }
-  | { type: "diff_available"; path: string; diff: string }
-  | { type: "verification_result"; verification: JsonValue }
-  | { type: "final_summary"; summaryEvidence: RunSummaryEvidence };
+  | { type: "plan_started"; message: string }
+  | { type: "todo_updated"; message: string; todos: RunTaskTodo[] }
+  | { type: "tool_started"; message: string; toolName: string; input?: unknown }
+  | { type: "tool_finished"; message: string; toolName: string; success: boolean; content?: string; metadata?: TraceMetadata }
+  | { type: "approval_required"; message: string; blockedAction?: JsonValue }
+  | { type: "diff_available"; message: string; path: string; diff?: string }
+  | { type: "verification_result"; message: string; passed: boolean; verification?: JsonValue }
+  | { type: "final_summary"; message: string; summary: RunSummaryEvidence };
 
 export interface RunTaskOptions {
   task: string;
@@ -54,10 +53,9 @@ export function planToTodos(plan: string): RunTaskTodo[] {
         .trim()
     )
     .filter((line) => line.length > 0)
-    .map((text, index) => ({
-      id: `todo-${index + 1}`,
-      text,
-      status: "pending"
+    .map((content, index) => ({
+      content,
+      status: index === 0 ? "in_progress" : "pending"
     }));
 }
 
@@ -121,10 +119,21 @@ function readVerificationMessage(value: JsonValue): string {
   return command;
 }
 
+function readVerificationPassed(value: JsonValue): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+
+  if (typeof value.passed === "boolean") {
+    return value.passed;
+  }
+
+  return value.exitCode === 0;
+}
+
 function todoToJson(todo: RunTaskTodo): JsonValue {
   return {
-    id: todo.id,
-    text: todo.text,
+    content: todo.content,
     status: todo.status
   };
 }
@@ -188,7 +197,7 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
       message: "Runtime summary",
       metadata: summaryEvidenceToMetadata(summaryEvidence)
     });
-    emit(options, { type: "final_summary", summaryEvidence });
+    emit(options, { type: "final_summary", message: summary, summary: summaryEvidence });
 
     return {
       exitCode,
@@ -206,7 +215,7 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
 
     if (action.kind === "plan") {
       session.trace.record({ type: "plan", message: action.content });
-      emit(options, { type: "plan_started", plan: action.content });
+      emit(options, { type: "plan_started", message: action.content });
 
       const todos = planToTodos(action.content);
 
@@ -217,17 +226,20 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
           todos: todos.map(todoToJson)
         }
       });
-      emit(options, { type: "todo_updated", todos });
+      emit(options, { type: "todo_updated", message: "Todo list updated", todos });
       continue;
     }
 
     if (action.kind === "tool") {
-      session.trace.record({ type: "tool_call", message: `${action.toolName} ${JSON.stringify(action.input)}` });
-      emit(options, { type: "tool_started", toolName: action.toolName, input: action.input });
+      const toolMessage = `${action.toolName} ${JSON.stringify(action.input)}`;
+
+      session.trace.record({ type: "tool_call", message: toolMessage });
+      emit(options, { type: "tool_started", message: toolMessage, toolName: action.toolName, input: action.input });
       const result = await options.tools.execute(action.toolName, action.input);
       session.trace.record({ type: "tool_result", message: result.content, metadata: result.metadata });
       emit(options, {
         type: "tool_finished",
+        message: `${action.toolName} ${result.content}`,
         toolName: action.toolName,
         success: result.success ?? true,
         content: result.content,
@@ -241,7 +253,7 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
             message: readReason(blockedAction),
             metadata: { blockedAction }
           });
-          emit(options, { type: "approval_required", blockedAction });
+          emit(options, { type: "approval_required", message: readReason(blockedAction), blockedAction });
         }
 
         if (typeof result.metadata.diff === "string") {
@@ -257,17 +269,24 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
                 modifiedFiles: [path]
               }
             });
-            emit(options, { type: "diff_available", path, diff: result.metadata.diff });
+            emit(options, { type: "diff_available", message: `Diff available for ${path}`, path, diff: result.metadata.diff });
           }
         }
 
         for (const verification of asJsonValues(result.metadata.verification)) {
+          const message = readVerificationMessage(verification);
+
           session.trace.record({
             type: "verification",
-            message: readVerificationMessage(verification),
+            message,
             metadata: { verification }
           });
-          emit(options, { type: "verification_result", verification });
+          emit(options, {
+            type: "verification_result",
+            message,
+            passed: readVerificationPassed(verification),
+            verification
+          });
         }
       }
       continue;
