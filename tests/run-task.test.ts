@@ -199,11 +199,44 @@ test("derives modified files, verification, blocked actions, and risks from trac
   ]);
 
   const result = await runTask({ task: "Update README", provider, tools, workspace, maxSteps: 10 });
+  const writeToolResult = result.trace.events.find(
+    (event) => event.type === "tool_result" && event.metadata?.toolName === "fake_write"
+  );
 
+  assert.deepEqual(writeToolResult?.metadata?.modifiedFiles, ["README.md"]);
+  assert.equal(writeToolResult?.metadata?.toolSuccess, true);
   assert.deepEqual(result.summaryEvidence.modifiedFiles, ["README.md"]);
   assert.equal(result.summaryEvidence.verification[0]?.passed, true);
   assert.deepEqual(result.summaryEvidence.blockedActions, []);
   assert.deepEqual(result.summaryEvidence.remainingRisks, []);
+  assert.equal(result.summaryEvidence.traceEventCount, result.trace.events.length);
+});
+
+test("records failed tool evidence in trace metadata and summary risks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "fake_fail",
+    description: "Fake failed tool.",
+    async execute() {
+      return {
+        success: false,
+        content: "failed"
+      };
+    }
+  });
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "fake_fail", input: {} },
+    { kind: "final", content: "Tool failed." }
+  ]);
+
+  const result = await runTask({ task: "Run failed tool", provider, tools, workspace, maxSteps: 10 });
+  const toolResult = result.trace.events.find((event) => event.type === "tool_result");
+
+  assert.equal(toolResult?.metadata?.toolName, "fake_fail");
+  assert.equal(toolResult?.metadata?.toolSuccess, false);
+  assert.deepEqual(result.summaryEvidence.remainingRisks, ["Tool fake_fail failed."]);
 });
 
 test("preserves blocked action kind and path in summary evidence", async () => {

@@ -161,6 +161,12 @@ export function createRunSummaryEvidence(
         addUnique(remainingRisks, value, value, seenRemainingRisks);
       }
     }
+
+    if (event.metadata?.toolSuccess === false && typeof event.metadata.toolName === "string") {
+      const risk = `Tool ${event.metadata.toolName} failed.`;
+
+      addUnique(remainingRisks, risk, risk, seenRemainingRisks);
+    }
   }
 
   for (const action of blockedActions) {

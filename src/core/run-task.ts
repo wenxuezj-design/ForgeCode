@@ -202,7 +202,10 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
   function finish(exitCode: number, summary: string): RunTaskResult {
     session.trace.record({ type: "final", message: summary });
 
-    const summaryEvidence = createRunSummaryEvidence(options.task, summary, session.trace.events);
+    const summaryEvidence = {
+      ...createRunSummaryEvidence(options.task, summary, session.trace.events),
+      traceEventCount: session.trace.events.length + 1
+    };
 
     session.trace.record({
       type: "summary",
@@ -249,8 +252,13 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
       emit(options, { type: "tool_started", message: `Starting ${action.toolName}`, toolName: action.toolName });
       const result = await options.tools.execute(action.toolName, action.input);
       const success = result.success ?? true;
+      const toolResultMetadata: TraceMetadata = {
+        ...(result.metadata ?? {}),
+        toolName: action.toolName,
+        toolSuccess: success
+      };
 
-      session.trace.record({ type: "tool_result", message: result.content, metadata: result.metadata });
+      session.trace.record({ type: "tool_result", message: result.content, metadata: toolResultMetadata });
       emit(options, {
         type: "tool_finished",
         message: `${action.toolName} ${success ? "succeeded" : "failed"}`,
