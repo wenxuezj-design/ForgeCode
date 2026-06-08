@@ -122,6 +122,7 @@ test("emits plan, todo, tool progress, and final summary events", async () => {
   assert.equal("content" in (events[3] ?? {}), false);
   assert.equal((events[4]?.summary as { task?: string } | undefined)?.task, "Inspect README");
   assert.equal(result.summaryEvidence.task, "Inspect README");
+  assert.deepEqual(result.summaryEvidence.remainingRisks, []);
   assert.ok(result.summaryEvidence.traceEventCount >= 1);
 });
 

@@ -138,7 +138,6 @@ export function createRunSummaryEvidence(
   const seenVerification = new Set<string>();
   const seenBlockedActions = new Set<string>();
   const seenRemainingRisks = new Set<string>();
-  let hasExplicitRemainingRisks = false;
 
   for (const event of events) {
     for (const value of asJsonValues(event.metadata?.verification)) {
@@ -159,7 +158,6 @@ export function createRunSummaryEvidence(
 
     for (const value of asJsonValues(event.metadata?.remainingRisks)) {
       if (typeof value === "string") {
-        hasExplicitRemainingRisks = true;
         addUnique(remainingRisks, value, value, seenRemainingRisks);
       }
     }
@@ -179,18 +177,6 @@ export function createRunSummaryEvidence(
   }
 
   if (modifiedFiles.length > 0 && verification.length === 0) {
-    addUnique(
-      remainingRisks,
-      "No verification command was recorded.",
-      "No verification command was recorded.",
-      seenRemainingRisks
-    );
-  } else if (
-    modifiedFiles.length === 0 &&
-    blockedActions.length === 0 &&
-    verification.length === 0 &&
-    !hasExplicitRemainingRisks
-  ) {
     addUnique(
       remainingRisks,
       "No verification command was recorded.",
