@@ -7,6 +7,19 @@ import { test } from "node:test";
 import { createCommandTool } from "../dist/tools/command-tool.js";
 import { createToolRegistry } from "../dist/tools/registry.js";
 
+function assertApprovalBlocked(
+  result: Awaited<ReturnType<ReturnType<typeof createCommandTool>["execute"]>>,
+  command: string
+): void {
+  assert.equal(result.success, false);
+  assert.match(result.content, /requires approval/i);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "approval",
+    reason: "Destructive command requires approval.",
+    command
+  });
+}
+
 test("registry rejects duplicate tool names and executes registered tools", async () => {
   const registry = createToolRegistry();
 
@@ -101,14 +114,20 @@ test("command tool refuses destructive commands by default", async () => {
 
   const result = await tool.execute({ command: "rm", args: ["sentinel.txt"] });
 
-  assert.equal(result.success, false);
-  assert.match(result.content, /requires approval/i);
-  assert.deepEqual(result.metadata?.blockedAction, {
-    kind: "approval",
-    reason: "Destructive command requires approval.",
-    command: "rm sentinel.txt"
-  });
+  assertApprovalBlocked(result, "rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses mv by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const source = join(root, "old.txt");
+  await writeFile(source, "old\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "mv", args: ["old.txt", "new.txt"] });
+
+  assertApprovalBlocked(result, "mv old.txt new.txt");
+  assert.equal(await readFile(source, "utf8"), "old\n");
 });
 
 test("command tool resolves spawn errors with structured verification metadata", async () => {
@@ -144,11 +163,45 @@ test("command tool refuses force flags by default", async () => {
 
   const result = await tool.execute({ command: "node", args: ["--force"] });
 
-  assert.equal(result.success, false);
-  assert.match(result.content, /requires approval/i);
-  assert.deepEqual(result.metadata?.blockedAction, {
-    kind: "approval",
-    reason: "Destructive command requires approval.",
-    command: "node --force"
-  });
+  assertApprovalBlocked(result, "node --force");
+});
+
+test("command tool refuses force flag variants by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "node", args: ["--force-with-lease"] });
+
+  assertApprovalBlocked(result, "node --force-with-lease");
+});
+
+test("command tool refuses destructive git commands after global options", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "git", args: ["-C", root, "clean"] });
+
+  assertApprovalBlocked(result, `git -C ${root} clean`);
+});
+
+test("command tool refuses destructive git restore by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "git", args: ["restore", "README.md"] });
+
+  assertApprovalBlocked(result, "git restore README.md");
+});
+
+test("command tool refuses destructive git branch deletes by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const forceDelete = await tool.execute({ command: "git", args: ["branch", "-D", "feature"] });
+  const deleteBranch = await tool.execute({ command: "git", args: ["branch", "-d", "feature"] });
+  const longDelete = await tool.execute({ command: "git", args: ["branch", "--delete", "feature"] });
+
+  assertApprovalBlocked(forceDelete, "git branch -D feature");
+  assertApprovalBlocked(deleteBranch, "git branch -d feature");
+  assertApprovalBlocked(longDelete, "git branch --delete feature");
 });

@@ -18,14 +18,89 @@ function formatCommand(command: string, args: string[]): string {
   return [command, ...args].join(" ");
 }
 
-function classifyCommand(command: string, args: string[]): CommandRisk {
-  const destructiveCommands = new Set(["rm", "rmdir"]);
+function hasForceFlag(args: string[]): boolean {
+  return args.some(
+    (arg) => arg === "-f" || arg === "--force" || arg.startsWith("--force=") || arg.startsWith("--force-")
+  );
+}
 
-  if (command === "git" && ["reset", "clean", "checkout"].includes(args[0] ?? "")) {
+function parseGitCommand(args: string[]): { subcommand: string | undefined; subcommandArgs: string[] } {
+  const globalOptionsWithValues = new Set([
+    "-C",
+    "-c",
+    "--config-env",
+    "--exec-path",
+    "--git-dir",
+    "--namespace",
+    "--super-prefix",
+    "--work-tree"
+  ]);
+  let index = 0;
+
+  while (index < args.length) {
+    const arg = args[index];
+
+    if (globalOptionsWithValues.has(arg)) {
+      index += 2;
+      continue;
+    }
+
+    if (
+      arg.startsWith("--config-env=") ||
+      arg.startsWith("--exec-path=") ||
+      arg.startsWith("--git-dir=") ||
+      arg.startsWith("--namespace=") ||
+      arg.startsWith("--super-prefix=") ||
+      arg.startsWith("--work-tree=")
+    ) {
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      index += 1;
+      continue;
+    }
+
+    return {
+      subcommand: arg,
+      subcommandArgs: args.slice(index + 1)
+    };
+  }
+
+  return {
+    subcommand: undefined,
+    subcommandArgs: []
+  };
+}
+
+function isDestructiveGitCommand(args: string[]): boolean {
+  const destructiveSubcommands = new Set(["reset", "clean", "checkout", "restore", "rm", "switch"]);
+  const { subcommand, subcommandArgs } = parseGitCommand(args);
+
+  if (subcommand === undefined) {
+    return false;
+  }
+
+  if (destructiveSubcommands.has(subcommand)) {
+    return true;
+  }
+
+  if (subcommand === "branch") {
+    return subcommandArgs.some((arg) => arg === "-D" || arg === "-d" || arg === "--delete");
+  }
+
+  return false;
+}
+
+function classifyCommand(command: string, args: string[]): CommandRisk {
+  const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
+
+  if (command === "git" && isDestructiveGitCommand(args)) {
     return "destructive";
   }
 
-  if (destructiveCommands.has(command) || args.includes("--force") || args.includes("-f")) {
+  if (destructiveCommands.has(command) || hasForceFlag(args)) {
     return "destructive";
   }
 
@@ -119,6 +194,15 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
         });
         let stdout = "";
         let stderr = "";
+        let settled = false;
+        const settle = (result: ToolResult) => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          resolve(result);
+        };
 
         child.stdout.on("data", (chunk: Buffer) => {
           stdout += chunk.toString();
@@ -127,12 +211,12 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
           stderr += chunk.toString();
         });
         child.on("error", (error: Error) => {
-          resolve(commandResult(risk, formattedCommand, 1, stdout, error.message));
+          settle(commandResult(risk, formattedCommand, 1, stdout, error.message));
         });
         child.on("close", (exitCode) => {
           const actualExitCode = exitCode ?? 1;
 
-          resolve(commandResult(risk, formattedCommand, actualExitCode, stdout, stderr));
+          settle(commandResult(risk, formattedCommand, actualExitCode, stdout, stderr));
         });
       });
     }
