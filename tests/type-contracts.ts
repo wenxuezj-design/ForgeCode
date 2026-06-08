@@ -1,4 +1,6 @@
 import type {
+  ApprovalPolicy,
+  CommandRisk,
   JsonValue,
   RunSummaryEvidence,
   RunTaskEvent,
@@ -50,12 +52,17 @@ const runTaskEvent = {
   summary: runSummaryEvidence
 } satisfies RunTaskEvent;
 
+const approvalPolicy: ApprovalPolicy = "allow-safe";
+const commandRisk: CommandRisk = "destructive";
+
 const jsonValue: JsonValue = {
   summaryType: summaryEvent.type,
   toolSucceeded: toolResult.success ?? null,
   metadata: traceMetadata,
   todoStatus: runTaskTodo.status,
-  runTaskEventType: runTaskEvent.type
+  runTaskEventType: runTaskEvent.type,
+  approvalPolicy,
+  commandRisk
 };
 
 void jsonValue;

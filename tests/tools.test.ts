@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -118,6 +118,18 @@ test("command tool refuses destructive commands by default", async () => {
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses rmdir by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const target = join(root, "target");
+  await mkdir(target);
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "rmdir", args: ["target"] });
+
+  assertApprovalBlocked(result, "rmdir target");
+  assert.equal((await stat(target)).isDirectory(), true);
+});
+
 test("command tool refuses mv by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const source = join(root, "old.txt");
@@ -184,6 +196,17 @@ test("command tool refuses destructive git commands after global options", async
   assertApprovalBlocked(result, `git -C ${root} clean`);
 });
 
+test("command tool refuses destructive git reset and checkout by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const reset = await tool.execute({ command: "git", args: ["reset", "--hard"] });
+  const checkout = await tool.execute({ command: "git", args: ["checkout", "README.md"] });
+
+  assertApprovalBlocked(reset, "git reset --hard");
+  assertApprovalBlocked(checkout, "git checkout README.md");
+});
+
 test("command tool refuses destructive git restore by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const tool = createCommandTool({ cwd: root });
@@ -193,6 +216,17 @@ test("command tool refuses destructive git restore by default", async () => {
   assertApprovalBlocked(result, "git restore README.md");
 });
 
+test("command tool refuses destructive git rm and switch by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const remove = await tool.execute({ command: "git", args: ["rm", "README.md"] });
+  const switchBranch = await tool.execute({ command: "git", args: ["switch", "feature"] });
+
+  assertApprovalBlocked(remove, "git rm README.md");
+  assertApprovalBlocked(switchBranch, "git switch feature");
+});
+
 test("command tool refuses destructive git branch deletes by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const tool = createCommandTool({ cwd: root });
@@ -200,8 +234,33 @@ test("command tool refuses destructive git branch deletes by default", async () 
   const forceDelete = await tool.execute({ command: "git", args: ["branch", "-D", "feature"] });
   const deleteBranch = await tool.execute({ command: "git", args: ["branch", "-d", "feature"] });
   const longDelete = await tool.execute({ command: "git", args: ["branch", "--delete", "feature"] });
+  const combinedDelete = await tool.execute({ command: "git", args: ["branch", "-df", "feature"] });
 
   assertApprovalBlocked(forceDelete, "git branch -D feature");
   assertApprovalBlocked(deleteBranch, "git branch -d feature");
   assertApprovalBlocked(longDelete, "git branch --delete feature");
+  assertApprovalBlocked(combinedDelete, "git branch -df feature");
+});
+
+test("command tool refuses destructive git push deletes by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const deleteFlag = await tool.execute({ command: "git", args: ["push", "origin", "--delete", "feature"] });
+  const refDelete = await tool.execute({ command: "git", args: ["push", "origin", ":feature"] });
+
+  assertApprovalBlocked(deleteFlag, "git push origin --delete feature");
+  assertApprovalBlocked(refDelete, "git push origin :feature");
+});
+
+test("command tool records allow-all approval metadata for destructive commands", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root, approvalPolicy: "allow-all" });
+
+  const result = await tool.execute({ command: "node", args: ["--force", "-e", ""] });
+  const verification = result.metadata?.verification as { command?: string } | undefined;
+
+  assert.equal(result.metadata?.risk, "destructive");
+  assert.deepEqual(result.metadata?.approval, { policy: "allow-all" });
+  assert.equal(verification?.command, "node --force -e ");
 });

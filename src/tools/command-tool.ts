@@ -87,7 +87,17 @@ function isDestructiveGitCommand(args: string[]): boolean {
   }
 
   if (subcommand === "branch") {
-    return subcommandArgs.some((arg) => arg === "-D" || arg === "-d" || arg === "--delete");
+    return subcommandArgs.some(
+      (arg) =>
+        arg === "-D" ||
+        arg === "-d" ||
+        arg === "--delete" ||
+        (arg.startsWith("-") && !arg.startsWith("--") && (arg.includes("d") || arg.includes("D")))
+    );
+  }
+
+  if (subcommand === "push") {
+    return subcommandArgs.some((arg) => arg === "--delete" || arg.startsWith(":"));
   }
 
   return false;
@@ -116,7 +126,8 @@ function commandResult(
   formattedCommand: string,
   exitCode: number,
   stdout: string,
-  stderr: string
+  stderr: string,
+  approvalPolicy?: ApprovalPolicy
 ): ToolResult {
   const content = [
     `exitCode=${exitCode}`,
@@ -129,6 +140,7 @@ function commandResult(
     content,
     metadata: {
       risk,
+      ...(approvalPolicy ? { approval: { policy: approvalPolicy } } : {}),
       verification: {
         command: formattedCommand,
         exitCode,
@@ -171,6 +183,9 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
       const approvalPolicy = options.approvalPolicy ?? "never";
       const risk = classifyCommand(command, args);
       const formattedCommand = formatCommand(command, args);
+      const auditedApprovalPolicy = risk === "destructive" && approvalPolicy === "allow-all"
+        ? approvalPolicy
+        : undefined;
 
       if (risk === "destructive" && approvalPolicy !== "allow-all") {
         return {
@@ -211,12 +226,12 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
           stderr += chunk.toString();
         });
         child.on("error", (error: Error) => {
-          settle(commandResult(risk, formattedCommand, 1, stdout, error.message));
+          settle(commandResult(risk, formattedCommand, 1, stdout, error.message, auditedApprovalPolicy));
         });
         child.on("close", (exitCode) => {
           const actualExitCode = exitCode ?? 1;
 
-          settle(commandResult(risk, formattedCommand, actualExitCode, stdout, stderr));
+          settle(commandResult(risk, formattedCommand, actualExitCode, stdout, stderr, auditedApprovalPolicy));
         });
       });
     }

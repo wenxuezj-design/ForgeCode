@@ -15,7 +15,7 @@ export type { CoreApp } from "./core/app.js";
 export type { RunTaskEvent, RunTaskOptions, RunTaskResult, RunTaskTodo } from "./core/run-task.js";
 export type { BlockedActionEvidence, RunSummaryEvidence, VerificationEvidence } from "./core/run-summary.js";
 export type { AgentAction, AgentActionContext, ModelMessage, ModelProvider } from "./providers/model-provider.js";
-export type { CreateCommandToolOptions } from "./tools/command-tool.js";
+export type { ApprovalPolicy, CommandRisk, CreateCommandToolOptions } from "./tools/command-tool.js";
 export type { Tool, ToolRegistry, ToolResult } from "./tools/registry.js";
 export type { WorkspaceTools } from "./tools/workspace-tools.js";
 export type { Workspace } from "./workspace/workspace.js";
