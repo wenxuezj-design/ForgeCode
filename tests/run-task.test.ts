@@ -239,6 +239,50 @@ test("records failed tool evidence in trace metadata and summary risks", async (
   assert.deepEqual(result.summaryEvidence.remainingRisks, ["Tool fake_fail failed."]);
 });
 
+test("protects provider trace event snapshots from mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "fake_fail",
+    description: "Fake failed tool.",
+    async execute() {
+      return {
+        success: false,
+        content: "failed"
+      };
+    }
+  });
+  let calls = 0;
+  const provider = {
+    name: "mutating-provider",
+    async complete() {
+      return { role: "assistant" as const, content: "unused" };
+    },
+    async nextAction(context: { events: Array<{ type: string; metadata?: Record<string, unknown> }> }) {
+      calls += 1;
+
+      if (calls === 1) {
+        return { kind: "tool" as const, toolName: "fake_fail", input: {} };
+      }
+
+      const toolResult = context.events.find((event) => event.type === "tool_result");
+
+      if (toolResult?.metadata) {
+        toolResult.metadata.toolSuccess = true;
+      }
+
+      return { kind: "final" as const, content: "Done." };
+    }
+  };
+
+  const result = await runTask({ task: "Run failed tool", provider, tools, workspace, maxSteps: 10 });
+  const toolResult = result.trace.events.find((event) => event.type === "tool_result");
+
+  assert.equal(toolResult?.metadata?.toolSuccess, false);
+  assert.deepEqual(result.summaryEvidence.remainingRisks, ["Tool fake_fail failed."]);
+});
+
 test("preserves blocked action kind and path in summary evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
   const workspace = createWorkspace(root);

@@ -1,5 +1,5 @@
 import { createAgentSession } from "../agent/session.js";
-import type { JsonValue, TraceMetadata, TraceRecorder } from "../agent/trace.js";
+import type { JsonValue, TraceEvent, TraceMetadata, TraceRecorder } from "../agent/trace.js";
 import type { ModelProvider } from "../providers/model-provider.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { Workspace } from "../workspace/workspace.js";
@@ -61,6 +61,17 @@ export function planToTodos(plan: string): RunTaskTodo[] {
 
 function emit(options: RunTaskOptions, event: RunTaskEvent): void {
   options.onEvent?.(event);
+}
+
+function cloneJsonValue<T extends JsonValue>(value: T): T {
+  return structuredClone(value);
+}
+
+function snapshotTraceEvents(events: TraceEvent[]): TraceEvent[] {
+  return events.map((event) => ({
+    ...event,
+    metadata: event.metadata ? cloneJsonValue(event.metadata) : undefined
+  }));
 }
 
 function isJsonObject(value: JsonValue | undefined): value is { [key: string]: JsonValue } {
@@ -225,7 +236,7 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
   for (let step = 0; step < maxSteps; step += 1) {
     const action = await options.provider.nextAction({
       task: options.task,
-      events: [...session.trace.events]
+      events: snapshotTraceEvents(session.trace.events)
     });
 
     if (action.kind === "plan") {
