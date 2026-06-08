@@ -10,7 +10,7 @@ export { createWorkspaceTools } from "./tools/workspace-tools.js";
 export { resolveInsideRoot } from "./workspace/path-policy.js";
 export { createWorkspace } from "./workspace/workspace.js";
 export type { AgentEvent, AgentSession } from "./agent/session.js";
-export type { TraceEvent, TraceEventType, TraceRecorder } from "./agent/trace.js";
+export type { JsonValue, TraceEvent, TraceEventType, TraceMetadata, TraceRecorder } from "./agent/trace.js";
 export type { CoreApp } from "./core/app.js";
 export type { RunTaskOptions, RunTaskResult } from "./core/run-task.js";
 export type { AgentAction, AgentActionContext, ModelMessage, ModelProvider } from "./providers/model-provider.js";

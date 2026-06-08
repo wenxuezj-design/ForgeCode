@@ -11,7 +11,7 @@
     "bench:micro": "npm run build --silent && node dist/benchmarks/micro-runner.js",
     "dev": "npm run build --silent && node dist/cli.js",
     "test": "npm run build --silent && node --experimental-strip-types --test tests/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.test.json"
   },
   "keywords": [
     "coding-agent",
