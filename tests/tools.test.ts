@@ -539,11 +539,13 @@ test("command tool refuses destructive git push deletes by default", async () =>
   const shortDelete = await tool.execute({ command: "git", args: ["push", "origin", "-d", "feature"] });
   const forceDelete = await tool.execute({ command: "git", args: ["push", "origin", "-D", "feature"] });
   const refDelete = await tool.execute({ command: "git", args: ["push", "origin", ":feature"] });
+  const forcedRefDelete = await tool.execute({ command: "git", args: ["push", "origin", "+:feature"] });
 
   assertApprovalBlocked(deleteFlag, "git push origin --delete feature");
   assertApprovalBlocked(shortDelete, "git push origin -d feature");
   assertApprovalBlocked(forceDelete, "git push origin -D feature");
   assertApprovalBlocked(refDelete, "git push origin :feature");
+  assertApprovalBlocked(forcedRefDelete, "git push origin +:feature");
 });
 
 test("command tool records allow-all approval metadata for destructive commands", async () => {

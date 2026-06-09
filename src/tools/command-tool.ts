@@ -274,7 +274,9 @@ function isDestructiveGitCommand(args: string[]): boolean {
   }
 
   if (subcommand === "push") {
-    return subcommandArgs.some((arg) => arg === "--delete" || arg === "-d" || arg === "-D" || arg.startsWith(":"));
+    return subcommandArgs.some(
+      (arg) => arg === "--delete" || arg === "-d" || arg === "-D" || arg.startsWith(":") || arg.startsWith("+:")
+    );
   }
 
   return false;
