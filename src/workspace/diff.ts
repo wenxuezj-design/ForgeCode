@@ -5,9 +5,18 @@ export interface TextDiffInput {
   isNewFile?: boolean;
 }
 
-const MAX_DETAILED_DIFF_LINES = 1_000;
-const MAX_DETAILED_DIFF_CELLS = 250_000;
-const MAX_DETAILED_DIFF_CHARS = 200_000;
+export const MAX_DETAILED_DIFF_LINES = 1_000;
+export const MAX_DETAILED_DIFF_CELLS = 250_000;
+export const MAX_DETAILED_DIFF_CHARS = 200_000;
+
+export interface OmittedTextDiffInput {
+  path: string;
+  isNewFile?: boolean;
+  beforeLineCount?: number;
+  afterLineCount?: number;
+  beforeSizeBytes?: number;
+  afterSizeBytes?: number;
+}
 
 type DiffOperation =
   | { kind: "context"; line: string }
@@ -38,6 +47,22 @@ function splitText(text: string): SplitText {
     lines,
     endsWithNewline
   };
+}
+
+function countTextLines(text: string): number {
+  if (text.length === 0) {
+    return 0;
+  }
+
+  let lineCount = text.endsWith("\n") ? 0 : 1;
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === "\n") {
+      lineCount += 1;
+    }
+  }
+
+  return lineCount;
 }
 
 function buildLcsTable(beforeLines: string[], afterLines: string[]): number[][] {
@@ -160,24 +185,45 @@ function formatOperations(operations: DiffOperation[], before: SplitText, after:
   return lines;
 }
 
-function formatRange(lines: string[], emptyStart: number): string {
-  if (lines.length === 0) {
+function formatCountRange(lineCount: number, emptyStart: number): string {
+  if (lineCount === 0) {
     return `${emptyStart},0`;
   }
 
-  return `1,${lines.length}`;
+  return `1,${lineCount}`;
 }
 
-function shouldOmitDetailedDiff(input: TextDiffInput, before: SplitText, after: SplitText): boolean {
-  if (input.before === input.after) {
-    return false;
+function shouldOmitDetailedDiff(
+  beforeLineCount: number,
+  afterLineCount: number,
+  beforeLength: number,
+  afterLength: number
+): boolean {
+  return (
+    beforeLineCount + afterLineCount > MAX_DETAILED_DIFF_LINES ||
+    beforeLineCount * afterLineCount > MAX_DETAILED_DIFF_CELLS ||
+    beforeLength + afterLength > MAX_DETAILED_DIFF_CHARS
+  );
+}
+
+export function createOmittedTextDiff(input: OmittedTextDiffInput): string {
+  const beforePath = input.isNewFile ? "/dev/null" : input.path;
+  const lines = [`--- ${beforePath}`, `+++ ${input.path}`];
+
+  if (input.beforeLineCount !== undefined && input.afterLineCount !== undefined) {
+    lines.push(
+      `@@ -${formatCountRange(input.beforeLineCount, 0)} +${formatCountRange(input.afterLineCount, 1)} @@`
+    );
   }
 
-  return (
-    before.lines.length + after.lines.length > MAX_DETAILED_DIFF_LINES ||
-    before.lines.length * after.lines.length > MAX_DETAILED_DIFF_CELLS ||
-    input.before.length + input.after.length > MAX_DETAILED_DIFF_CHARS
-  );
+  const sizes =
+    input.beforeSizeBytes !== undefined && input.afterSizeBytes !== undefined
+      ? ` (${input.beforeSizeBytes} before bytes, ${input.afterSizeBytes} after bytes)`
+      : "";
+
+  lines.push(` Diff omitted for ${input.path}: change is too large for inline diff${sizes}.`);
+
+  return lines.join("\n");
 }
 
 export function createTextDiff(input: TextDiffInput): string {
@@ -185,19 +231,24 @@ export function createTextDiff(input: TextDiffInput): string {
     return "";
   }
 
+  const beforeLineCount = countTextLines(input.before);
+  const afterLineCount = countTextLines(input.after);
+  const beforePath = input.isNewFile ? "/dev/null" : input.path;
+  const hunkHeader = `@@ -${formatCountRange(beforeLineCount, 0)} +${formatCountRange(afterLineCount, 1)} @@`;
+
+  if (shouldOmitDetailedDiff(beforeLineCount, afterLineCount, input.before.length, input.after.length)) {
+    return createOmittedTextDiff({
+      path: input.path,
+      isNewFile: input.isNewFile,
+      beforeLineCount,
+      afterLineCount,
+      beforeSizeBytes: Buffer.byteLength(input.before, "utf8"),
+      afterSizeBytes: Buffer.byteLength(input.after, "utf8")
+    });
+  }
+
   const before = splitText(input.before);
   const after = splitText(input.after);
-  const beforePath = input.isNewFile ? "/dev/null" : input.path;
-  const hunkHeader = `@@ -${formatRange(before.lines, 0)} +${formatRange(after.lines, 1)} @@`;
-
-  if (shouldOmitDetailedDiff(input, before, after)) {
-    return [
-      `--- ${beforePath}`,
-      `+++ ${input.path}`,
-      hunkHeader,
-      ` Diff omitted for ${input.path}: change is too large for inline diff (${before.lines.length} before lines, ${after.lines.length} after lines).`
-    ].join("\n");
-  }
 
   const operations = buildOperations(before, after);
 

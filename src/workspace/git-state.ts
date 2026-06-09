@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 
 export interface GitState {
   available: boolean;
@@ -23,14 +24,7 @@ function conservativeGitState(): GitState {
 }
 
 function shouldClearGitEnv(key: string): boolean {
-  return (
-    key === "GIT_DIR" ||
-    key === "GIT_WORK_TREE" ||
-    key === "GIT_INDEX_FILE" ||
-    key === "GIT_CONFIG" ||
-    key === "GIT_CEILING_DIRECTORIES" ||
-    key.startsWith("GIT_CONFIG_")
-  );
+  return key.startsWith("GIT_");
 }
 
 function safeGitEnv(): NodeJS.ProcessEnv {
@@ -51,6 +45,24 @@ function normalizeGitPath(path: string): string {
 
 function isOutsideWorkspace(relativePath: string): boolean {
   return relativePath === ".." || relativePath.startsWith("../") || resolve(relativePath) === relativePath;
+}
+
+function hasGitMarker(cwd: string): boolean {
+  let currentPath = resolve(cwd);
+
+  while (true) {
+    if (existsSync(resolve(currentPath, ".git"))) {
+      return true;
+    }
+
+    const parentPath = dirname(currentPath);
+
+    if (parentPath === currentPath) {
+      return false;
+    }
+
+    currentPath = parentPath;
+  }
 }
 
 function toWorkspaceRelativePath(repoRoot: string, cwd: string, repoRelativePath: string): string | undefined {
@@ -162,13 +174,13 @@ export async function readGitState(cwd: string): Promise<GitState> {
   const repoRootResult = await runGit(absoluteCwd, ["rev-parse", "--show-toplevel"], env);
 
   if (repoRootResult.exitCode !== 0) {
-    return emptyGitState();
+    return hasGitMarker(absoluteCwd) ? conservativeGitState() : emptyGitState();
   }
 
   const repoRootPath = repoRootResult.stdout.trim();
 
   if (!repoRootPath) {
-    return emptyGitState();
+    return hasGitMarker(absoluteCwd) ? conservativeGitState() : emptyGitState();
   }
 
   const repoRoot = await realpath(repoRootPath).catch(() => resolve(repoRootPath));

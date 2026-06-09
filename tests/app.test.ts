@@ -11,14 +11,7 @@ import { createHelpMessage, createWelcomeMessage, runCli } from "../dist/app.js"
 const execFileAsync = promisify(execFile);
 
 function shouldClearGitEnv(key: string): boolean {
-  return (
-    key === "GIT_DIR" ||
-    key === "GIT_WORK_TREE" ||
-    key === "GIT_INDEX_FILE" ||
-    key === "GIT_CONFIG" ||
-    key === "GIT_CEILING_DIRECTORIES" ||
-    key.startsWith("GIT_CONFIG_")
-  );
+  return key.startsWith("GIT_");
 }
 
 function safeGitEnv(): NodeJS.ProcessEnv {

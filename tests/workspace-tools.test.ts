@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,14 +14,7 @@ import { createWorkspace } from "../dist/workspace/workspace.js";
 const execFileAsync = promisify(execFile);
 
 function shouldClearGitEnv(key: string): boolean {
-  return (
-    key === "GIT_DIR" ||
-    key === "GIT_WORK_TREE" ||
-    key === "GIT_INDEX_FILE" ||
-    key === "GIT_CONFIG" ||
-    key === "GIT_CEILING_DIRECTORIES" ||
-    key.startsWith("GIT_CONFIG_")
-  );
+  return key.startsWith("GIT_");
 }
 
 function safeGitEnv(): NodeJS.ProcessEnv {
@@ -38,6 +31,16 @@ function safeGitEnv(): NodeJS.ProcessEnv {
 
 async function runGit(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd, env: safeGitEnv() });
+}
+
+async function pathsReferToSameEntry(firstPath: string, secondPath: string): Promise<boolean> {
+  try {
+    const [firstStat, secondStat] = await Promise.all([stat(firstPath), stat(secondPath)]);
+
+    return firstStat.dev === secondStat.dev && firstStat.ino === secondStat.ino;
+  } catch {
+    return false;
+  }
 }
 
 async function withGitEnv<T>(
@@ -111,6 +114,28 @@ test("workspace write tool returns bounded diff metadata for large changes", asy
   assert.match(String(result.metadata?.diff), /omitted/i);
 });
 
+test("workspace write tool omits diffs before reading very large existing files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  const largePath = join(root, "large-existing.txt");
+  await writeFile(largePath, "x".repeat(210_000));
+  await chmod(largePath, 0o200);
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace);
+
+  const result = await tools.writeFile
+    .execute({ path: "large-existing.txt", content: "small\n" })
+    .finally(async () => {
+      await chmod(largePath, 0o600).catch(() => undefined);
+    });
+
+  assert.equal(result.success, true);
+  assert.equal(await readFile(largePath, "utf8"), "small\n");
+  assert.match(String(result.metadata?.diff), /--- large-existing\.txt/);
+  assert.match(String(result.metadata?.diff), /\+\+\+ large-existing\.txt/);
+  assert.match(String(result.metadata?.diff), /210000 before bytes/);
+  assert.match(String(result.metadata?.diff), /omitted/i);
+});
+
 test("workspace write tool reports new file diffs from /dev/null", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
   const workspace = createWorkspace(root);
@@ -173,6 +198,55 @@ test("workspace write tool refuses files dirty at task start", async () => {
     path: "README.md"
   });
   assert.equal(await readFile(join(root, "README.md"), "utf8"), "# User change\n");
+});
+
+test("workspace write tool refuses dirty files through case aliases", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  const actualPath = join(root, "README.md");
+  const aliasPath = join(root, "readme.md");
+  await writeFile(actualPath, "# User change\n");
+
+  if (!(await pathsReferToSameEntry(actualPath, aliasPath))) {
+    t.skip("case-sensitive filesystem does not alias README.md and readme.md");
+    return;
+  }
+
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: new Set(["README.md"])
+  });
+
+  const result = await tools.writeFile.execute({ path: "readme.md", content: "# ForgeCode change\n" });
+
+  assert.equal(result.success, false);
+  assert.match(result.content, /user changes/i);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "readme.md"
+  });
+  assert.equal(await readFile(actualPath, "utf8"), "# User change\n");
+});
+
+test("workspace write tool refuses dirty files through symlink aliases", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  await writeFile(join(root, "real.txt"), "user\n");
+  await symlink("real.txt", join(root, "alias.txt"));
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: new Set(["real.txt"])
+  });
+
+  const result = await tools.writeFile.execute({ path: "alias.txt", content: "forge\n" });
+
+  assert.equal(result.success, false);
+  assert.match(result.content, /user changes/i);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "alias.txt"
+  });
+  assert.equal(await readFile(join(root, "real.txt"), "utf8"), "user\n");
 });
 
 test("workspace write tool treats dirty directories as protecting children", async () => {
@@ -402,6 +476,25 @@ test("readGitState ignores git ceiling directory overrides while probing from su
     },
     async () => {
       const gitState = await readGitState(workspaceRoot);
+
+      assert.equal(gitState.available, true);
+      assert.deepEqual([...gitState.dirtyPaths].sort(), ["file.txt"]);
+    }
+  );
+});
+
+test("readGitState ignores git common directory overrides while probing status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
+  const commonDir = await mkdtemp(join(tmpdir(), "forgecode-git-common-"));
+  await runGit(root, ["init", "--quiet"]);
+  await writeFile(join(root, "file.txt"), "user\n");
+
+  await withGitEnv(
+    {
+      GIT_COMMON_DIR: commonDir
+    },
+    async () => {
+      const gitState = await readGitState(root);
 
       assert.equal(gitState.available, true);
       assert.deepEqual([...gitState.dirtyPaths].sort(), ["file.txt"]);

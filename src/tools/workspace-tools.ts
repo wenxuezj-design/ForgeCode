@@ -1,7 +1,11 @@
-import { existsSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { relative, sep } from "node:path";
-import { createTextDiff } from "../workspace/diff.js";
+import {
+  createOmittedTextDiff,
+  createTextDiff,
+  MAX_DETAILED_DIFF_CHARS
+} from "../workspace/diff.js";
 import type { Workspace } from "../workspace/workspace.js";
 import type { Tool, ToolResult } from "./registry.js";
 
@@ -44,10 +48,87 @@ function workspaceRelativePath(workspace: Workspace, absolutePath: string): stri
   return normalizeWorkspacePath(relative(workspace.resolvePath("."), absolutePath));
 }
 
-function hasDirtyPath(dirtyPaths: Set<string>, path: string): boolean {
+function normalizeAbsolutePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function dirtyPathForResolve(path: string): string {
+  if (path === ".") {
+    return ".";
+  }
+
+  return path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
+function realPathForExistingPath(absolutePath: string): string | undefined {
+  try {
+    return normalizeAbsolutePath(realpathSync.native(absolutePath));
+  } catch {
+    return undefined;
+  }
+}
+
+function isExistingDirectory(absolutePath: string): boolean {
+  try {
+    return statSync(absolutePath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function withTrailingSlash(path: string): string {
+  return path.endsWith("/") ? path : `${path}/`;
+}
+
+interface DirtyPathSnapshot {
+  paths: Set<string>;
+  realPaths: Set<string>;
+  realPathPrefixes: Set<string>;
+}
+
+function createDirtyPathSnapshot(
+  workspace: Workspace,
+  dirtyPaths: Set<string> | undefined
+): DirtyPathSnapshot {
+  const snapshot: DirtyPathSnapshot = {
+    paths: new Set(),
+    realPaths: new Set(),
+    realPathPrefixes: new Set()
+  };
+
+  for (const dirtyPath of dirtyPaths ?? new Set<string>()) {
+    const normalizedDirtyPath = normalizeWorkspacePath(dirtyPath);
+    snapshot.paths.add(normalizedDirtyPath);
+
+    try {
+      const absoluteDirtyPath = workspace.resolvePath(dirtyPathForResolve(normalizedDirtyPath));
+      const realDirtyPath = realPathForExistingPath(absoluteDirtyPath);
+
+      if (!realDirtyPath) {
+        continue;
+      }
+
+      snapshot.realPaths.add(realDirtyPath);
+
+      if (
+        normalizedDirtyPath === "." ||
+        normalizedDirtyPath.endsWith("/") ||
+        isExistingDirectory(absoluteDirtyPath)
+      ) {
+        snapshot.realPathPrefixes.add(withTrailingSlash(realDirtyPath));
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return snapshot;
+}
+
+function hasDirtyPath(snapshot: DirtyPathSnapshot, path: string, absolutePath: string): boolean {
   const normalizedPath = normalizeWorkspacePath(path);
 
-  for (const dirtyPath of dirtyPaths) {
+  for (const dirtyPath of snapshot.paths) {
     const normalizedDirtyPath = normalizeWorkspacePath(dirtyPath);
 
     if (normalizedDirtyPath === "." || normalizedDirtyPath === normalizedPath) {
@@ -63,17 +144,81 @@ function hasDirtyPath(dirtyPaths: Set<string>, path: string): boolean {
     }
   }
 
+  const realPath = realPathForExistingPath(absolutePath);
+
+  if (realPath) {
+    if (snapshot.realPaths.has(realPath)) {
+      return true;
+    }
+
+    for (const realPathPrefix of snapshot.realPathPrefixes) {
+      if (realPath.startsWith(realPathPrefix)) {
+        return true;
+      }
+    }
+  }
+
   return false;
+}
+
+function hasWrittenPath(
+  writtenPaths: Set<string>,
+  writtenRealPaths: Set<string>,
+  path: string,
+  absolutePath: string
+): boolean {
+  if (writtenPaths.has(path)) {
+    return true;
+  }
+
+  const realPath = realPathForExistingPath(absolutePath);
+
+  return realPath !== undefined && writtenRealPaths.has(realPath);
+}
+
+async function createDiffBeforeWrite(
+  absolutePath: string,
+  workspacePath: string,
+  content: string
+): Promise<string> {
+  const fileExists = existsSync(absolutePath);
+  const afterSizeBytes = Buffer.byteLength(content, "utf8");
+
+  if (fileExists) {
+    const beforeStats = await stat(absolutePath);
+
+    if (beforeStats.size + afterSizeBytes > MAX_DETAILED_DIFF_CHARS) {
+      return createOmittedTextDiff({
+        path: workspacePath,
+        beforeSizeBytes: beforeStats.size,
+        afterSizeBytes
+      });
+    }
+
+    const before = await readFile(absolutePath, "utf8");
+
+    return createTextDiff({ path: workspacePath, before, after: content });
+  }
+
+  if (afterSizeBytes > MAX_DETAILED_DIFF_CHARS) {
+    return createOmittedTextDiff({
+      path: workspacePath,
+      isNewFile: true,
+      beforeSizeBytes: 0,
+      afterSizeBytes
+    });
+  }
+
+  return createTextDiff({ path: workspacePath, before: "", after: content, isNewFile: true });
 }
 
 export function createWorkspaceTools(
   workspace: Workspace,
   options: CreateWorkspaceToolsOptions = {}
 ): WorkspaceTools {
-  const dirtyPathsAtStart = new Set(
-    [...(options.dirtyPathsAtStart ?? new Set<string>())].map(normalizeWorkspacePath)
-  );
+  const dirtyPathsAtStart = createDirtyPathSnapshot(workspace, options.dirtyPathsAtStart);
   const writtenPaths = new Set<string>();
+  const writtenRealPaths = new Set<string>();
 
   return {
     listFiles: {
@@ -107,7 +252,10 @@ export function createWorkspaceTools(
         const absolutePath = workspace.resolvePath(path);
         const workspacePath = workspaceRelativePath(workspace, absolutePath);
 
-        if (hasDirtyPath(dirtyPathsAtStart, workspacePath) && !writtenPaths.has(workspacePath)) {
+        if (
+          hasDirtyPath(dirtyPathsAtStart, workspacePath, absolutePath) &&
+          !hasWrittenPath(writtenPaths, writtenRealPaths, workspacePath, absolutePath)
+        ) {
           return {
             success: false,
             content: `Refusing to overwrite user changes in ${workspacePath}`,
@@ -121,11 +269,14 @@ export function createWorkspaceTools(
           };
         }
 
-        const fileExists = existsSync(absolutePath);
-        const before = fileExists ? await readFile(absolutePath, "utf8") : "";
-        const diff = createTextDiff({ path: workspacePath, before, after: content, isNewFile: !fileExists });
+        const diff = await createDiffBeforeWrite(absolutePath, workspacePath, content);
         await writeFile(absolutePath, content);
         writtenPaths.add(workspacePath);
+        const writtenRealPath = realPathForExistingPath(absolutePath);
+
+        if (writtenRealPath) {
+          writtenRealPaths.add(writtenRealPath);
+        }
 
         return {
           success: true,
