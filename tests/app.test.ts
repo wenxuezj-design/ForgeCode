@@ -10,8 +10,31 @@ import { createHelpMessage, createWelcomeMessage, runCli } from "../dist/app.js"
 
 const execFileAsync = promisify(execFile);
 
+function shouldClearGitEnv(key: string): boolean {
+  return (
+    key === "GIT_DIR" ||
+    key === "GIT_WORK_TREE" ||
+    key === "GIT_INDEX_FILE" ||
+    key === "GIT_CONFIG" ||
+    key === "GIT_CEILING_DIRECTORIES" ||
+    key.startsWith("GIT_CONFIG_")
+  );
+}
+
+function safeGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !shouldClearGitEnv(key)) {
+      env[key] = value;
+    }
+  }
+
+  return env;
+}
+
 async function runGit(cwd: string, args: string[]): Promise<void> {
-  await execFileAsync("git", args, { cwd });
+  await execFileAsync("git", args, { cwd, env: safeGitEnv() });
 }
 
 test("creates a welcome message with the project name and purpose", () => {

@@ -156,6 +156,14 @@ function formatOperations(operations: DiffOperation[], before: SplitText, after:
   return lines;
 }
 
+function formatRange(lines: string[], emptyStart: number): string {
+  if (lines.length === 0) {
+    return `${emptyStart},0`;
+  }
+
+  return `1,${lines.length}`;
+}
+
 export function createTextDiff(input: TextDiffInput): string {
   if (input.before === input.after && !input.isNewFile) {
     return "";
@@ -165,11 +173,12 @@ export function createTextDiff(input: TextDiffInput): string {
   const after = splitText(input.after);
   const beforePath = input.isNewFile ? "/dev/null" : input.path;
   const operations = buildOperations(before, after);
+  const hunkHeader = `@@ -${formatRange(before.lines, 0)} +${formatRange(after.lines, 1)} @@`;
 
   return [
     `--- ${beforePath}`,
     `+++ ${input.path}`,
-    "@@",
+    hunkHeader,
     ...formatOperations(operations, before, after)
   ].join("\n");
 }

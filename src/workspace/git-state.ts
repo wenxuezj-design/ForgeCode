@@ -73,6 +73,14 @@ function parseDirtyPaths(stdout: string, repoRoot: string, cwd: string): Set<str
   const dirtyPaths = new Set<string>();
   const records = stdout.split("\0");
 
+  function addDirtyPath(repoRelativePath: string): void {
+    const workspaceRelativePath = toWorkspaceRelativePath(repoRoot, cwd, repoRelativePath);
+
+    if (workspaceRelativePath) {
+      dirtyPaths.add(workspaceRelativePath);
+    }
+  }
+
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
 
@@ -87,13 +95,15 @@ function parseDirtyPaths(stdout: string, repoRoot: string, cwd: string): Set<str
       continue;
     }
 
-    const workspaceRelativePath = toWorkspaceRelativePath(repoRoot, cwd, repoRelativePath);
-
-    if (workspaceRelativePath) {
-      dirtyPaths.add(workspaceRelativePath);
-    }
+    addDirtyPath(repoRelativePath);
 
     if (status.includes("R") || status.includes("C")) {
+      const originalRepoRelativePath = records[index + 1];
+
+      if (originalRepoRelativePath) {
+        addDirtyPath(originalRepoRelativePath);
+      }
+
       index += 1;
     }
   }
@@ -117,28 +127,31 @@ async function runGit(cwd: string, args: string[], env: NodeJS.ProcessEnv): Prom
       return;
     }
 
-    let stdout = "";
+    const stdoutChunks: Buffer[] = [];
     let settled = false;
 
-    function finish(result: GitCommandResult): void {
+    function finish(exitCode: number): void {
       if (settled) {
         return;
       }
 
       settled = true;
-      resolve(result);
+      resolve({
+        exitCode,
+        stdout: Buffer.concat(stdoutChunks).toString("utf8")
+      });
     }
 
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
+      stdoutChunks.push(chunk);
     });
 
     child.on("error", () => {
-      finish({ exitCode: 1, stdout });
+      finish(1);
     });
 
     child.on("close", (exitCode) => {
-      finish({ exitCode: exitCode ?? 1, stdout });
+      finish(exitCode ?? 1);
     });
   });
 }

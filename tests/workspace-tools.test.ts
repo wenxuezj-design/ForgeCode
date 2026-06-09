@@ -13,8 +13,31 @@ import { createWorkspace } from "../dist/workspace/workspace.js";
 
 const execFileAsync = promisify(execFile);
 
+function shouldClearGitEnv(key: string): boolean {
+  return (
+    key === "GIT_DIR" ||
+    key === "GIT_WORK_TREE" ||
+    key === "GIT_INDEX_FILE" ||
+    key === "GIT_CONFIG" ||
+    key === "GIT_CEILING_DIRECTORIES" ||
+    key.startsWith("GIT_CONFIG_")
+  );
+}
+
+function safeGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !shouldClearGitEnv(key)) {
+      env[key] = value;
+    }
+  }
+
+  return env;
+}
+
 async function runGit(cwd: string, args: string[]): Promise<void> {
-  await execFileAsync("git", args, { cwd });
+  await execFileAsync("git", args, { cwd, env: safeGitEnv() });
 }
 
 async function withGitEnv<T>(
@@ -81,6 +104,7 @@ test("workspace write tool reports new file diffs from /dev/null", async () => {
   assert.deepEqual(result.metadata?.modifiedFiles, ["notes.txt"]);
   assert.match(String(result.metadata?.diff), /--- \/dev\/null/);
   assert.match(String(result.metadata?.diff), /\+\+\+ notes\.txt/);
+  assert.match(String(result.metadata?.diff), /@@ -0,0 \+1,1 @@/);
   assert.match(String(result.metadata?.diff), /\+hello/);
 });
 
@@ -89,7 +113,13 @@ test("text diff reports empty new files as creation diffs", () => {
 
   assert.match(diff, /--- \/dev\/null/);
   assert.match(diff, /\+\+\+ empty\.txt/);
-  assert.match(diff, /@@/);
+  assert.match(diff, /@@ -0,0 \+1,0 @@/);
+});
+
+test("text diff reports full-file unified hunk ranges for modifications", () => {
+  const diff = createTextDiff({ path: "README.md", before: "# Old\n", after: "# New\n" });
+
+  assert.match(diff, /@@ -1,1 \+1,1 @@/);
 });
 
 test("text diff shows CRLF-to-LF line ending changes", () => {
@@ -250,7 +280,33 @@ test("readGitState uses rename targets containing arrows from porcelain z output
   const gitState = await readGitState(root);
 
   assert.equal(gitState.available, true);
-  assert.deepEqual([...gitState.dirtyPaths].sort(), ["target -> file.txt"]);
+  assert.deepEqual([...gitState.dirtyPaths].sort(), ["original.txt", "target -> file.txt"]);
+});
+
+test("readGitState protects both old and new paths for renames", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
+  await runGit(root, ["init", "--quiet"]);
+  await writeFile(join(root, "original.txt"), "old\n");
+  await runGit(root, ["add", "original.txt"]);
+  await runGit(root, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "init"]);
+  await runGit(root, ["mv", "original.txt", "target.txt"]);
+
+  const gitState = await readGitState(root);
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: gitState.dirtyPaths
+  });
+  const result = await tools.writeFile.execute({ path: "original.txt", content: "forge\n" });
+
+  assert.equal(gitState.available, true);
+  assert.deepEqual([...gitState.dirtyPaths].sort(), ["original.txt", "target.txt"]);
+  assert.equal(result.success, false);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "original.txt"
+  });
+  await assert.rejects(() => readFile(join(root, "original.txt"), "utf8"), /ENOENT/);
 });
 
 test("readGitState ignores git environment overrides while probing status", async () => {
