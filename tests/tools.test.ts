@@ -209,6 +209,14 @@ test("command tool refuses node eval with allow-safe policy", async () => {
   assertApprovalBlocked(result, "node -e ", "Command risk is not safe.", "unknown");
 });
 
+test("command tool refuses path-qualified node safe names with allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({ command: "./node", args: ["--version"] });
+
+  assertApprovalBlocked(result, "./node --version", "Command risk is not safe.", "unknown");
+});
+
 test("command tool does not refuse read-only git commands by default", async () => {
   const tool = createCommandTool({ cwd: process.cwd() });
 
@@ -242,6 +250,14 @@ test("command tool refuses git status with global config under allow-safe policy
     "Command risk is not safe.",
     "unknown"
   );
+});
+
+test("command tool refuses path-qualified git safe names with allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({ command: "./git", args: ["status", "--short"] });
+
+  assertApprovalBlocked(result, "./git status --short", "Command risk is not safe.", "unknown");
 });
 
 test("command tool refuses force flags by default", async () => {
@@ -343,6 +359,18 @@ test("command tool refuses env combined split-string shell command strings by de
   const result = await tool.execute({ command: "/usr/bin/env", args: ["-iSsh -c rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "/usr/bin/env -iSsh -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env unset shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-uSHELL", "sh", "-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -uSHELL sh -c rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 

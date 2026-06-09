@@ -102,16 +102,42 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
     }
 
     if (allowSplitString && arg.startsWith("-") && !arg.startsWith("--")) {
-      const splitOptionIndex = arg.indexOf("S", 1);
+      let optionIndex = 1;
+      let shortOptionSkip = 1;
+      let parsedShortOption = false;
 
-      if (splitOptionIndex !== -1) {
-        const splitValue = arg.slice(splitOptionIndex + 1);
-        const splitArgs = splitValue.length > 0
-          ? splitEnvCommandString(splitValue)
-          : splitEnvCommandString(args[index + 1] ?? "");
-        const remainingArgs = splitValue.length > 0 ? args.slice(index + 1) : args.slice(index + 2);
+      while (optionIndex < arg.length) {
+        const option = arg[optionIndex];
 
-        return parseEnvCommand([...splitArgs, ...remainingArgs], false);
+        if (option === "S") {
+          const splitValue = arg.slice(optionIndex + 1);
+          const splitArgs = splitValue.length > 0
+            ? splitEnvCommandString(splitValue)
+            : splitEnvCommandString(args[index + 1] ?? "");
+          const remainingArgs = splitValue.length > 0 ? args.slice(index + 1) : args.slice(index + 2);
+
+          return parseEnvCommand([...splitArgs, ...remainingArgs], false);
+        }
+
+        parsedShortOption = true;
+
+        if (option === "u" || option === "C" || option === "P") {
+          shortOptionSkip = optionIndex + 1 < arg.length ? 1 : 2;
+          break;
+        }
+
+        if (option === "i" || option === "0" || option === "v") {
+          optionIndex += 1;
+          continue;
+        }
+
+        parsedShortOption = false;
+        break;
+      }
+
+      if (parsedShortOption) {
+        index += shortOptionSkip;
+        continue;
       }
     }
 
@@ -270,15 +296,15 @@ function classifyCommand(command: string, args: string[]): CommandRisk {
     return "destructive";
   }
 
-  if (normalizedCommand === "node" && isSafeNodeCommand(args)) {
+  if (command === "node" && isSafeNodeCommand(args)) {
     return "safe";
   }
 
-  if (normalizedCommand === "npm" && isSafeNpmCommand(args)) {
+  if (command === "npm" && isSafeNpmCommand(args)) {
     return "safe";
   }
 
-  if (normalizedCommand === "git" && isSafeGitCommand(args)) {
+  if (command === "git" && isSafeGitCommand(args)) {
     return "safe";
   }
 
