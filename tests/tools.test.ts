@@ -260,7 +260,7 @@ test("command tool allows read-only git status with allow-safe policy", async ()
   assert.equal(result.metadata?.blockedAction, undefined);
 });
 
-test("command tool refuses git status with global config under allow-safe policy", async () => {
+test("command tool refuses executable git status global config under allow-safe policy", async () => {
   const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
 
   const result = await tool.execute({
@@ -270,9 +270,7 @@ test("command tool refuses git status with global config under allow-safe policy
 
   assertApprovalBlocked(
     result,
-    "git -c core.fsmonitor=/tmp/hook status --short",
-    "Command risk is not safe.",
-    "unknown"
+    "git -c core.fsmonitor=/tmp/hook status --short"
   );
 });
 
@@ -754,6 +752,31 @@ test("command tool refuses env-wrapped git config-count bang aliases by default"
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses env-wrapped git config-count executable config keys by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({
+    command: "/usr/bin/env",
+    args: [
+      "GIT_CONFIG_COUNT=1",
+      "GIT_CONFIG_KEY_0=core.fsmonitor",
+      "GIT_CONFIG_VALUE_0=/tmp/hook",
+      "git",
+      "status",
+      "--short"
+    ]
+  });
+
+  assertApprovalBlocked(
+    result,
+    "/usr/bin/env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=/tmp/hook git status --short"
+  );
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses nested env-wrapped shell command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -794,6 +817,30 @@ test("command tool refuses env split-string shell command strings by default", a
   const result = await tool.execute({ command: "/usr/bin/env", args: ["-S", "bash -lc rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "/usr/bin/env -S bash -lc rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses nested env split-string shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-S", "-S \"sh -c rm sentinel.txt\""] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -S -S \"sh -c rm sentinel.txt\"");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env split-string chains that exceed scan depth by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-S-S-S-S-Ssh -c rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -S-S-S-S-Ssh -c rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
@@ -917,6 +964,46 @@ test("command tool refuses git bang aliases from global config by default", asyn
   });
 
   assertApprovalBlocked(result, "git -c alias.codexprobe=!rm sentinel.txt codexprobe");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses git include config injection by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const includePath = await tool.execute({
+    command: "git",
+    args: ["-c", "include.path=/tmp/config", "codexprobe"]
+  });
+  const conditionalIncludePath = await tool.execute({
+    command: "git",
+    args: ["-c", "includeIf.any.path=/tmp/config", "codexprobe"]
+  });
+
+  assertApprovalBlocked(includePath, "git -c include.path=/tmp/config codexprobe");
+  assertApprovalBlocked(conditionalIncludePath, "git -c includeIf.any.path=/tmp/config codexprobe");
+});
+
+test("command tool refuses git config-env include config injection by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({
+    command: "/usr/bin/env",
+    args: [
+      "FORGECODE_CONFIG=/tmp/config",
+      "git",
+      "--config-env=include.path=FORGECODE_CONFIG",
+      "codexprobe"
+    ]
+  });
+
+  assertApprovalBlocked(
+    result,
+    "/usr/bin/env FORGECODE_CONFIG=/tmp/config git --config-env=include.path=FORGECODE_CONFIG codexprobe"
+  );
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 

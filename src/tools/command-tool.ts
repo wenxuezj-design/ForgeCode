@@ -22,9 +22,11 @@ interface ParsedEnvCommand {
   command: string | undefined;
   args: string[];
   env: Map<string, string>;
+  destructive?: boolean;
 }
 
 const emptyRiskContext: RiskContext = { env: new Map() };
+const maxEnvSplitDepth = 4;
 
 function formatCommand(command: string, args: string[]): string {
   return [command, ...args].join(" ");
@@ -158,7 +160,7 @@ function splitEnvCommandString(value: string): string[] {
 
 function parseEnvCommand(
   args: string[],
-  allowSplitString = true,
+  splitDepth = 0,
   inheritedEnv: Map<string, string> = new Map()
 ): ParsedEnvCommand {
   const optionsWithValues = new Set(["-u", "--unset", "-C", "--chdir", "-P", "--path", "-a", "--argv0"]);
@@ -168,13 +170,17 @@ function parseEnvCommand(
   while (index < args.length) {
     const arg = args[index];
 
-    if (allowSplitString && (arg === "-S" || arg === "--split-string")) {
+    if (arg === "-S" || arg === "--split-string") {
+      if (splitDepth >= maxEnvSplitDepth) {
+        return { command: undefined, args: [], env, destructive: true };
+      }
+
       const splitArgs = args[index + 1] ? splitEnvCommandString(args[index + 1]) : [];
 
-      return parseEnvCommand([...splitArgs, ...args.slice(index + 2)], false, env);
+      return parseEnvCommand([...splitArgs, ...args.slice(index + 2)], splitDepth + 1, env);
     }
 
-    if (allowSplitString && arg.startsWith("-") && !arg.startsWith("--")) {
+    if (arg.startsWith("-") && !arg.startsWith("--")) {
       let optionIndex = 1;
       let shortOptionSkip = 1;
       let parsedShortOption = false;
@@ -183,13 +189,17 @@ function parseEnvCommand(
         const option = arg[optionIndex];
 
         if (option === "S") {
+          if (splitDepth >= maxEnvSplitDepth) {
+            return { command: undefined, args: [], env, destructive: true };
+          }
+
           const splitValue = arg.slice(optionIndex + 1);
           const splitArgs = splitValue.length > 0
             ? splitEnvCommandString(splitValue)
             : splitEnvCommandString(args[index + 1] ?? "");
           const remainingArgs = splitValue.length > 0 ? args.slice(index + 1) : args.slice(index + 2);
 
-          return parseEnvCommand([...splitArgs, ...remainingArgs], false, env);
+          return parseEnvCommand([...splitArgs, ...remainingArgs], splitDepth + 1, env);
         }
 
         parsedShortOption = true;
@@ -214,10 +224,14 @@ function parseEnvCommand(
       }
     }
 
-    if (allowSplitString && arg.startsWith("--split-string=")) {
+    if (arg.startsWith("--split-string=")) {
+      if (splitDepth >= maxEnvSplitDepth) {
+        return { command: undefined, args: [], env, destructive: true };
+      }
+
       const splitArgs = splitEnvCommandString(arg.slice("--split-string=".length));
 
-      return parseEnvCommand([...splitArgs, ...args.slice(index + 1)], false, env);
+      return parseEnvCommand([...splitArgs, ...args.slice(index + 1)], splitDepth + 1, env);
     }
 
     if (optionsWithValues.has(arg)) {
@@ -270,7 +284,11 @@ function isDestructiveEnvWrappedCommand(args: string[], depth = 0, context = emp
     return true;
   }
 
-  const envCommand = parseEnvCommand(args, true, context.env);
+  const envCommand = parseEnvCommand(args, 0, context.env);
+  if (envCommand.destructive) {
+    return true;
+  }
+
   if (envCommand.command === undefined) {
     return false;
   }
@@ -334,33 +352,53 @@ function isGitAliasConfigKey(value: string): boolean {
   return normalizedValue.startsWith("alias.") && normalizedValue.length > "alias.".length;
 }
 
-function isGitBangAliasConfig(value: string): boolean {
+function isDangerousGitConfigKey(value: string): boolean {
+  const normalizedValue = value.trim().toLowerCase();
+
+  return (
+    normalizedValue === "core.fsmonitor" ||
+    normalizedValue === "core.sshcommand" ||
+    normalizedValue === "include.path" ||
+    (normalizedValue.startsWith("includeif.") && normalizedValue.endsWith(".path"))
+  );
+}
+
+function isDestructiveGitConfig(key: string, value: string): boolean {
+  return isDangerousGitConfigKey(key) || (isGitAliasConfigKey(key) && value.trimStart().startsWith("!"));
+}
+
+function isDestructiveGitConfigAssignment(value: string): boolean {
   const equalsIndex = value.indexOf("=");
 
   if (equalsIndex === -1) {
     return false;
   }
 
-  return isGitAliasConfigKey(value.slice(0, equalsIndex)) && value.slice(equalsIndex + 1).trimStart().startsWith("!");
+  return isDestructiveGitConfig(value.slice(0, equalsIndex), value.slice(equalsIndex + 1));
 }
 
 function getRiskEnvValue(name: string, context: RiskContext): string | undefined {
   return context.env.get(name) ?? process.env[name];
 }
 
-function isGitBangAliasConfigEnv(value: string, context: RiskContext): boolean {
+function isDestructiveGitConfigEnv(value: string, context: RiskContext): boolean {
   const equalsIndex = value.indexOf("=");
 
   if (equalsIndex === -1) {
     return false;
   }
 
+  const key = value.slice(0, equalsIndex);
+  if (isDangerousGitConfigKey(key)) {
+    return true;
+  }
+
   const envValue = getRiskEnvValue(value.slice(equalsIndex + 1), context) ?? "";
 
-  return isGitAliasConfigKey(value.slice(0, equalsIndex)) && envValue.trimStart().startsWith("!");
+  return isDestructiveGitConfig(key, envValue);
 }
 
-function hasDestructiveGitConfigCountAlias(context: RiskContext): boolean {
+function hasDestructiveGitConfigCount(context: RiskContext): boolean {
   const countValue = getRiskEnvValue("GIT_CONFIG_COUNT", context);
   const count = Number.parseInt(countValue ?? "", 10);
 
@@ -372,7 +410,7 @@ function hasDestructiveGitConfigCountAlias(context: RiskContext): boolean {
     const key = getRiskEnvValue(`GIT_CONFIG_KEY_${index}`, context) ?? "";
     const value = getRiskEnvValue(`GIT_CONFIG_VALUE_${index}`, context) ?? "";
 
-    if (isGitAliasConfigKey(key) && value.trimStart().startsWith("!")) {
+    if (isDestructiveGitConfig(key, value)) {
       return true;
     }
   }
@@ -380,8 +418,8 @@ function hasDestructiveGitConfigCountAlias(context: RiskContext): boolean {
   return false;
 }
 
-function hasDestructiveGitAliasConfig(args: string[], context: RiskContext): boolean {
-  if (hasDestructiveGitConfigCountAlias(context)) {
+function hasDestructiveGitConfig(args: string[], context: RiskContext): boolean {
+  if (hasDestructiveGitConfigCount(context)) {
     return true;
   }
 
@@ -392,7 +430,11 @@ function hasDestructiveGitAliasConfig(args: string[], context: RiskContext): boo
       const config = args[index + 1] ?? "";
       const splitValue = args[index + 2] ?? "";
 
-      if (isGitBangAliasConfig(config) || (isGitAliasConfigKey(config) && splitValue.trimStart().startsWith("!"))) {
+      if (
+        isDestructiveGitConfigAssignment(config) ||
+        isDangerousGitConfigKey(config) ||
+        (isGitAliasConfigKey(config) && splitValue.trimStart().startsWith("!"))
+      ) {
         return true;
       }
 
@@ -400,12 +442,16 @@ function hasDestructiveGitAliasConfig(args: string[], context: RiskContext): boo
       continue;
     }
 
-    if (arg.startsWith("-c") && arg.length > 2 && isGitBangAliasConfig(arg.slice(2))) {
+    if (
+      arg.startsWith("-c") &&
+      arg.length > 2 &&
+      (isDestructiveGitConfigAssignment(arg.slice(2)) || isDangerousGitConfigKey(arg.slice(2)))
+    ) {
       return true;
     }
 
     if (arg === "--config-env") {
-      if (isGitBangAliasConfigEnv(args[index + 1] ?? "", context)) {
+      if (isDestructiveGitConfigEnv(args[index + 1] ?? "", context)) {
         return true;
       }
 
@@ -413,7 +459,7 @@ function hasDestructiveGitAliasConfig(args: string[], context: RiskContext): boo
       continue;
     }
 
-    if (arg.startsWith("--config-env=") && isGitBangAliasConfigEnv(arg.slice("--config-env=".length), context)) {
+    if (arg.startsWith("--config-env=") && isDestructiveGitConfigEnv(arg.slice("--config-env=".length), context)) {
       return true;
     }
   }
@@ -424,7 +470,7 @@ function hasDestructiveGitAliasConfig(args: string[], context: RiskContext): boo
 function isDestructiveGitCommand(args: string[], context: RiskContext): boolean {
   const destructiveSubcommands = new Set(["reset", "clean", "checkout", "restore", "rm", "switch"]);
 
-  if (hasDestructiveGitAliasConfig(args, context)) {
+  if (hasDestructiveGitConfig(args, context)) {
     return true;
   }
 
