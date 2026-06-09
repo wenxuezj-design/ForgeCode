@@ -2,7 +2,6 @@ import { runTask } from "./core/run-task.js";
 import type { RunSummaryEvidence, VerificationEvidence } from "./core/run-summary.js";
 import type { RunTaskEvent } from "./core/run-task.js";
 import { createModelProvider } from "./providers/model-provider.js";
-import type { AgentAction, ModelProvider } from "./providers/model-provider.js";
 import { createCommandTool } from "./tools/command-tool.js";
 import { createToolRegistry } from "./tools/registry.js";
 import { createSearchTextTool } from "./tools/search-tool.js";
@@ -18,7 +17,11 @@ export interface CliResult {
   stderr: string;
 }
 
-function renderVerification(verification: VerificationEvidence[]): string {
+function assertNever(value: never): never {
+  throw new Error(`Unhandled run task event: ${JSON.stringify(value)}`);
+}
+
+export function renderVerification(verification: VerificationEvidence[]): string {
   if (verification.length === 0) {
     return "not recorded";
   }
@@ -52,7 +55,7 @@ function renderBlockedActions(evidence: RunSummaryEvidence): string {
     .join("; ");
 }
 
-function renderSummary(evidence: RunSummaryEvidence): string[] {
+export function renderSummary(evidence: RunSummaryEvidence): string[] {
   return [
     "Summary:",
     `- Changes: ${evidence.modifiedFiles.length > 0 ? evidence.modifiedFiles.join(", ") : "not recorded"}`,
@@ -62,7 +65,7 @@ function renderSummary(evidence: RunSummaryEvidence): string[] {
   ];
 }
 
-function renderRunEvent(event: RunTaskEvent): string | undefined {
+export function renderRunEvent(event: RunTaskEvent): string | undefined {
   switch (event.type) {
     case "plan_started":
       return `Plan: ${event.message}`;
@@ -76,30 +79,9 @@ function renderRunEvent(event: RunTaskEvent): string | undefined {
       return `Progress: ${event.message}`;
     case "final_summary":
       return undefined;
+    default:
+      return assertNever(event);
   }
-}
-
-function createLocalDevProvider(task: string): ModelProvider {
-  const provider = createModelProvider({ name: "stub" });
-  const actions: AgentAction[] = [
-    {
-      kind: "plan",
-      content: `Inspect workspace and report local run evidence for: ${task}`
-    },
-    {
-      kind: "tool",
-      toolName: "list_files",
-      input: {}
-    }
-  ];
-
-  return {
-    name: provider.name,
-    complete: provider.complete,
-    nextAction(context) {
-      return Promise.resolve(actions.shift() ?? provider.nextAction(context));
-    }
-  };
 }
 
 export function createWelcomeMessage(): string {
@@ -166,7 +148,7 @@ export async function runCli(args: string[]): Promise<CliResult> {
     tools.register(workspaceTools.writeFile);
     tools.register(createSearchTextTool(workspace));
     tools.register(createCommandTool({ cwd: workspace.rootPath }));
-    const provider = createLocalDevProvider(task);
+    const provider = createModelProvider({ name: "stub" });
     const progressLines: string[] = [];
     const result = await runTask({
       task,

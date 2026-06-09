@@ -6,7 +6,15 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 
-import { createHelpMessage, createWelcomeMessage, runCli } from "../dist/app.js";
+import {
+  createHelpMessage,
+  createWelcomeMessage,
+  renderRunEvent,
+  renderSummary,
+  runCli
+} from "../dist/app.js";
+import type { RunSummaryEvidence } from "../dist/core/run-summary.js";
+import type { RunTaskEvent } from "../dist/core/run-task.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -83,24 +91,113 @@ test("returns an error for unknown commands", async () => {
 
 test("runs the agent loop for the run command", async () => {
   const result = await runCli(["run", "build", "a", "tool", "registry"]);
+  const lines = result.stdout.trimEnd().split("\n");
 
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /Task: build a tool registry/);
-  assert.match(result.stdout, /Summary:/);
-  assert.match(result.stdout, /Changes:/);
-  assert.match(result.stdout, /Verification:/);
-  assert.match(result.stdout, /Risks:/);
+  assert.deepEqual(lines, [
+    "Task: build a tool registry",
+    "Summary:",
+    "- Changes: not recorded",
+    "- Verification: not recorded",
+    "- Blocked: none",
+    "- Risks: none",
+    "Provider final: No provider actions configured.",
+    "Trace events: 2"
+  ]);
+  assert.doesNotMatch(result.stdout, /^Plan:/m);
+  assert.doesNotMatch(result.stdout, /^Todo:/m);
+  assert.doesNotMatch(result.stdout, /^Progress:/m);
   assert.doesNotMatch(result.stdout, /Task complete\./);
   assert.equal(result.stderr, "");
 });
 
-test("renders runtime events as readable progress", async () => {
-  const result = await runCli(["run", "inspect", "this", "repository"]);
+test("renders runtime events as readable progress", () => {
+  const events: RunTaskEvent[] = [
+    { type: "plan_started", message: "Inspect workspace" },
+    {
+      type: "todo_updated",
+      message: "Todo list updated",
+      todos: [
+        { content: "Inspect workspace", status: "in_progress" },
+        { content: "Report result", status: "pending" }
+      ]
+    },
+    { type: "tool_started", message: "Starting read_file", toolName: "read_file" },
+    { type: "tool_finished", message: "read_file succeeded", toolName: "read_file", success: true },
+    { type: "approval_required", message: "Destructive command requires approval." },
+    { type: "diff_available", message: "Diff available for README.md", path: "README.md" },
+    { type: "verification_result", message: "npm test exitCode=0", passed: true },
+    {
+      type: "final_summary",
+      message: "Done.",
+      summary: {
+        task: "Inspect workspace",
+        providerFinal: "Done.",
+        modifiedFiles: [],
+        verification: [],
+        blockedActions: [],
+        remainingRisks: [],
+        traceEventCount: 1
+      }
+    }
+  ];
 
-  assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /Progress:/);
-  assert.match(result.stdout, /Trace events:/);
-  assert.equal(result.stderr, "");
+  assert.deepEqual(events.map(renderRunEvent), [
+    "Plan: Inspect workspace",
+    "Todo: in_progress:Inspect workspace, pending:Report result",
+    "Progress: Starting read_file",
+    "Progress: read_file succeeded",
+    "Progress: Destructive command requires approval.",
+    "Progress: Diff available for README.md",
+    "Progress: npm test exitCode=0",
+    undefined
+  ]);
+});
+
+test("renders summary evidence lines", () => {
+  const evidence: RunSummaryEvidence = {
+    task: "Update README",
+    providerFinal: "Updated README and verified.",
+    modifiedFiles: ["README.md", "src/app.ts"],
+    verification: [
+      { command: "npm test", exitCode: 0, passed: true },
+      { command: "npm run lint", passed: false }
+    ],
+    blockedActions: [
+      { reason: "Refusing to overwrite user-modified file.", path: "README.md" },
+      { reason: "Destructive command requires approval.", command: "rm tmp.txt" }
+    ],
+    remainingRisks: ["Manual QA pending.", "Release note pending."],
+    traceEventCount: 12
+  };
+
+  assert.deepEqual(renderSummary(evidence), [
+    "Summary:",
+    "- Changes: README.md, src/app.ts",
+    "- Verification: npm test: passed (exit 0); npm run lint: failed",
+    "- Blocked: Refusing to overwrite user-modified file. (README.md); Destructive command requires approval. (rm tmp.txt)",
+    "- Risks: Manual QA pending.; Release note pending."
+  ]);
+});
+
+test("renders empty summary evidence as not recorded", () => {
+  const evidence: RunSummaryEvidence = {
+    task: "Inspect workspace",
+    providerFinal: "No provider actions configured.",
+    modifiedFiles: [],
+    verification: [],
+    blockedActions: [],
+    remainingRisks: [],
+    traceEventCount: 2
+  };
+
+  assert.deepEqual(renderSummary(evidence), [
+    "Summary:",
+    "- Changes: not recorded",
+    "- Verification: not recorded",
+    "- Blocked: none",
+    "- Risks: none"
+  ]);
 });
 
 test("run command keeps working from an isolated git repository subdirectory", { concurrency: false }, async () => {
