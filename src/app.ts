@@ -3,6 +3,7 @@ import { createModelProvider } from "./providers/model-provider.js";
 import { createCommandTool } from "./tools/command-tool.js";
 import { createToolRegistry } from "./tools/registry.js";
 import { createWorkspaceTools } from "./tools/workspace-tools.js";
+import { readGitState } from "./workspace/git-state.js";
 import { createWorkspace } from "./workspace/workspace.js";
 
 const VERSION = "0.1.0";
@@ -68,7 +69,10 @@ export async function runCli(args: string[]): Promise<CliResult> {
 
     const workspace = createWorkspace(process.cwd());
     const tools = createToolRegistry();
-    const workspaceTools = createWorkspaceTools(workspace);
+    const gitState = await readGitState(workspace.rootPath);
+    const workspaceTools = createWorkspaceTools(workspace, {
+      dirtyPathsAtStart: gitState.dirtyPaths
+    });
     tools.register(workspaceTools.listFiles);
     tools.register(workspaceTools.readFile);
     tools.register(workspaceTools.writeFile);

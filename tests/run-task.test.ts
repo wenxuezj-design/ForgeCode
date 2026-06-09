@@ -38,6 +38,7 @@ test("runs a deterministic coding loop with plan, tool calls, and final summary"
     "tool_result",
     "tool_call",
     "tool_result",
+    "diff",
     "final",
     "summary"
   ]);

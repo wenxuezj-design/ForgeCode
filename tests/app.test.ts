@@ -64,6 +64,14 @@ test("runs the agent loop for the run command", async () => {
   assert.equal(result.stderr, "");
 });
 
+test("run command keeps working when git state is available", async () => {
+  const result = await runCli(["run", "inspect", "git", "state"]);
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /Summary:/);
+  assert.equal(result.stderr, "");
+});
+
 test("requires a task for the run command", async () => {
   const result = await runCli(["run"]);
 
