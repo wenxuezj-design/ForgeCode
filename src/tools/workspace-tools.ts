@@ -30,7 +30,14 @@ function readStringInput(input: unknown, key: string): string {
 }
 
 function normalizeWorkspacePath(path: string): string {
-  return path.split(sep).join("/");
+  const normalized = path
+    .replace(/\\/g, "/")
+    .split(sep)
+    .join("/")
+    .replace(/\/+/g, "/")
+    .replace(/^\.\//, "");
+
+  return normalized === "" ? "." : normalized;
 }
 
 function workspaceRelativePath(workspace: Workspace, absolutePath: string): string {
@@ -41,7 +48,13 @@ function hasDirtyPath(dirtyPaths: Set<string>, path: string): boolean {
   const normalizedPath = normalizeWorkspacePath(path);
 
   for (const dirtyPath of dirtyPaths) {
-    if (normalizeWorkspacePath(dirtyPath) === normalizedPath) {
+    const normalizedDirtyPath = normalizeWorkspacePath(dirtyPath);
+
+    if (normalizedDirtyPath === "." || normalizedDirtyPath === normalizedPath) {
+      return true;
+    }
+
+    if (normalizedDirtyPath.endsWith("/") && normalizedPath.startsWith(normalizedDirtyPath)) {
       return true;
     }
   }
@@ -53,7 +66,9 @@ export function createWorkspaceTools(
   workspace: Workspace,
   options: CreateWorkspaceToolsOptions = {}
 ): WorkspaceTools {
-  const dirtyPathsAtStart = options.dirtyPathsAtStart ?? new Set<string>();
+  const dirtyPathsAtStart = new Set(
+    [...(options.dirtyPathsAtStart ?? new Set<string>())].map(normalizeWorkspacePath)
+  );
   const writtenPaths = new Set<string>();
 
   return {
@@ -102,7 +117,8 @@ export function createWorkspaceTools(
           };
         }
 
-        const before = existsSync(absolutePath) ? await readFile(absolutePath, "utf8") : "";
+        const fileExists = existsSync(absolutePath);
+        const before = fileExists ? await readFile(absolutePath, "utf8") : "";
         await writeFile(absolutePath, content);
         writtenPaths.add(workspacePath);
 
@@ -111,7 +127,7 @@ export function createWorkspaceTools(
           content: `Wrote ${workspacePath}`,
           metadata: {
             modifiedFiles: [workspacePath],
-            diff: createTextDiff({ path: workspacePath, before, after: content })
+            diff: createTextDiff({ path: workspacePath, before, after: content, isNewFile: !fileExists })
           }
         };
       }

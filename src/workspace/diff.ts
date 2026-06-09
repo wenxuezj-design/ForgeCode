@@ -2,6 +2,7 @@ export interface TextDiffInput {
   path: string;
   before: string;
   after: string;
+  isNewFile?: boolean;
 }
 
 type DiffOperation =
@@ -9,18 +10,32 @@ type DiffOperation =
   | { kind: "removed"; line: string }
   | { kind: "added"; line: string };
 
-function splitTextLines(text: string): string[] {
-  if (text.length === 0) {
-    return [];
+interface SplitText {
+  lines: string[];
+  endsWithNewline: boolean;
+}
+
+function splitText(text: string): SplitText {
+  const normalized = text.replace(/\r\n/g, "\n");
+
+  if (normalized.length === 0) {
+    return {
+      lines: [],
+      endsWithNewline: false
+    };
   }
 
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const lines = normalized.split("\n");
+  const endsWithNewline = normalized.endsWith("\n");
 
-  if (lines[lines.length - 1] === "") {
+  if (endsWithNewline) {
     lines.pop();
   }
 
-  return lines;
+  return {
+    lines,
+    endsWithNewline
+  };
 }
 
 function buildLcsTable(beforeLines: string[], afterLines: string[]): number[][] {
@@ -77,6 +92,30 @@ function diffLines(beforeLines: string[], afterLines: string[]): DiffOperation[]
   return operations;
 }
 
+function linesEqual(beforeLines: string[], afterLines: string[]): boolean {
+  if (beforeLines.length !== afterLines.length) {
+    return false;
+  }
+
+  return beforeLines.every((line, index) => line === afterLines[index]);
+}
+
+function buildOperations(before: SplitText, after: SplitText): DiffOperation[] {
+  if (
+    before.endsWithNewline !== after.endsWithNewline &&
+    before.lines.length > 0 &&
+    linesEqual(before.lines, after.lines)
+  ) {
+    return [
+      ...before.lines.slice(0, -1).map((line): DiffOperation => ({ kind: "context", line })),
+      { kind: "removed", line: before.lines[before.lines.length - 1] },
+      { kind: "added", line: after.lines[after.lines.length - 1] }
+    ];
+  }
+
+  return diffLines(before.lines, after.lines);
+}
+
 function formatOperation(operation: DiffOperation): string {
   if (operation.kind === "context") {
     return ` ${operation.line}`;
@@ -89,18 +128,50 @@ function formatOperation(operation: DiffOperation): string {
   return `+${operation.line}`;
 }
 
+function findLastOperationIndex(operations: DiffOperation[], kind: DiffOperation["kind"]): number {
+  for (let index = operations.length - 1; index >= 0; index -= 1) {
+    if (operations[index].kind === kind) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function formatOperations(operations: DiffOperation[], before: SplitText, after: SplitText): string[] {
+  const lines: string[] = [];
+  const lastRemovedIndex = findLastOperationIndex(operations, "removed");
+  const lastAddedIndex = findLastOperationIndex(operations, "added");
+
+  operations.forEach((operation, index) => {
+    lines.push(formatOperation(operation));
+
+    if (index === lastRemovedIndex && before.lines.length > 0 && !before.endsWithNewline) {
+      lines.push("\\ No newline at end of file");
+    }
+
+    if (index === lastAddedIndex && after.lines.length > 0 && !after.endsWithNewline) {
+      lines.push("\\ No newline at end of file");
+    }
+  });
+
+  return lines;
+}
+
 export function createTextDiff(input: TextDiffInput): string {
   if (input.before === input.after) {
     return "";
   }
 
-  const beforeLines = splitTextLines(input.before);
-  const afterLines = splitTextLines(input.after);
+  const before = splitText(input.before);
+  const after = splitText(input.after);
+  const beforePath = input.isNewFile ? "/dev/null" : input.path;
+  const operations = buildOperations(before, after);
 
   return [
-    `--- ${input.path}`,
+    `--- ${beforePath}`,
     `+++ ${input.path}`,
     "@@",
-    ...diffLines(beforeLines, afterLines).map(formatOperation)
+    ...formatOperations(operations, before, after)
   ].join("\n");
 }

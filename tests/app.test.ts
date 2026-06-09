@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { promisify } from "node:util";
 
 import { createHelpMessage, createWelcomeMessage, runCli } from "../dist/app.js";
+
+const execFileAsync = promisify(execFile);
+
+async function runGit(cwd: string, args: string[]): Promise<void> {
+  await execFileAsync("git", args, { cwd });
+}
 
 test("creates a welcome message with the project name and purpose", () => {
   const message = createWelcomeMessage();
@@ -64,12 +75,24 @@ test("runs the agent loop for the run command", async () => {
   assert.equal(result.stderr, "");
 });
 
-test("run command keeps working when git state is available", async () => {
-  const result = await runCli(["run", "inspect", "git", "state"]);
+test("run command keeps working from an isolated git repository subdirectory", { concurrency: false }, async () => {
+  const originalCwd = process.cwd();
+  const root = await mkdtemp(join(tmpdir(), "forgecode-app-git-"));
+  const workspaceRoot = join(root, "sub");
+  await mkdir(workspaceRoot);
+  await runGit(root, ["init", "--quiet"]);
+  await writeFile(join(workspaceRoot, "file.txt"), "user\n");
 
-  assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /Summary:/);
-  assert.equal(result.stderr, "");
+  try {
+    process.chdir(workspaceRoot);
+    const result = await runCli(["run", "inspect", "git", "state"]);
+
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /Summary:/);
+    assert.equal(result.stderr, "");
+  } finally {
+    process.chdir(originalCwd);
+  }
 });
 
 test("requires a task for the run command", async () => {
