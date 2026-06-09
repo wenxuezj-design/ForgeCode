@@ -85,9 +85,21 @@ test("runs the agent loop for the run command", async () => {
   const result = await runCli(["run", "build", "a", "tool", "registry"]);
 
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /Task complete/);
-  assert.match(result.stdout, /build a tool registry/);
-  assert.match(result.stdout, /No provider actions configured/);
+  assert.match(result.stdout, /Task: build a tool registry/);
+  assert.match(result.stdout, /Summary:/);
+  assert.match(result.stdout, /Changes:/);
+  assert.match(result.stdout, /Verification:/);
+  assert.match(result.stdout, /Risks:/);
+  assert.doesNotMatch(result.stdout, /Task complete\./);
+  assert.equal(result.stderr, "");
+});
+
+test("renders runtime events as readable progress", async () => {
+  const result = await runCli(["run", "inspect", "this", "repository"]);
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /Progress:/);
+  assert.match(result.stdout, /Trace events:/);
   assert.equal(result.stderr, "");
 });
 
