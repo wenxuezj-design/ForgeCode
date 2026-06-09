@@ -136,6 +136,86 @@ benchmark 目标：
 - 单任务平均成本和耗时。
 - 失败类别分布。
 
+### v0.4：真实 Provider、成本预算和上下文预算
+
+目标：接入真实模型 provider，并让每次 agent run 的成本、耗时和上下文占用都可观测、可限制。v0.4 不直接追求长上下文压缩，而是先建立后续上下文管理和 benchmark 对比所需的计量基础。
+
+provider 策略：
+
+- 实现 OpenAI-compatible Provider Adapter，而不是把第一版绑定到单一厂商。
+- 以 DeepSeek 作为低成本真实 provider 的第一站，默认支持 `deepseek-chat`。
+- 可选支持 `deepseek-reasoner`，用于复杂任务或 release 前验证。
+- provider 配置应包含 base URL、model、API key 环境变量名、上下文窗口、价格参数和默认预算。
+- 保留后续接入 OpenAI、Qwen、Moonshot、OpenRouter 等兼容 provider 的扩展点。
+
+必需能力：
+
+- 真实 provider 的 `ModelProvider` 实现。
+- 每次 run 记录 model、provider、输入 token、输出 token、估算成本和耗时。
+- 每个任务强制执行最大 model calls、最大 tokens、最大 wall time 和最大 estimated cost。
+- 将 raw trace 和发送给模型的 model context 分离。
+- 对大型 tool output、失败日志和 diff 做进入模型上下文前的截断或摘要。
+- benchmark runner 输出 `cost_usd`、`input_tokens`、`output_tokens`、`duration_ms`、`model_calls`。
+
+benchmark 目标：
+
+- 默认 smoke suite 使用低成本模型运行，单次本地验证预算控制在很小范围内。
+- nightly 或手动 benchmark 可以切换到 reasoner 模型，并记录成本差异。
+- 记录不同 provider/model 在同一任务集上的完成率、验证通过率、成本和耗时。
+
+成功指标：
+
+- provider 配置可以无代码切换。
+- 每个任务都有成本和 token 证据。
+- 超预算任务会被明确中止并进入失败分类。
+- 低成本 provider 能稳定跑完自建 micro-benchmark 和 v0.3 小型外部任务集。
+
+### v0.5：Context Pack 和 Working Set Manager
+
+目标：从“能搜索上下文”升级为“能维护当前任务的有效工作集”。v0.5 重点解决读什么、保留什么、为什么保留，而不是先做复杂压缩算法。
+
+必需能力：
+
+- 为每个任务维护 context pack，包含用户目标、约束、当前计划、未完成 todo、已读文件、修改中文件、验证结果和失败原因。
+- 记录 search result -> read_file -> edit/verify 的上下文链路。
+- 为已读文件生成短摘要，并缓存摘要与原文件版本的关系。
+- 将关键证据分级：必须保留、可摘要、可丢弃。
+- 避免全仓暴力读取，优先通过搜索、文件列表和已有 context pack 扩展工作集。
+
+benchmark 目标：
+
+- 增加需要跨文件定位、失败后回溯、重复读取文件的任务。
+- 检查 context pack 是否保留了关键约束、失败验证和修改文件。
+
+成功指标：
+
+- 任务中后段仍能引用早期关键约束。
+- 重复读取和无关读取下降。
+- 失败修正时能利用此前验证输出和文件摘要。
+
+### v0.6：长上下文压缩算法
+
+目标：在 v0.4 的预算观测和 v0.5 的 context pack 基础上，实现长任务中的自动上下文压缩。v0.6 的核心不是丢弃历史，而是在 raw trace 完整保留的前提下，为模型构造更小但足够可靠的上下文。
+
+必需能力：
+
+- 当 model context 接近预算阈值时触发 compaction。
+- 压缩旧 tool_result、搜索结果、长 diff、失败日志和已完成计划。
+- 强保留不可丢信息：用户目标、约束、未完成 todo、已修改文件、验证结果、失败原因、blocked actions 和未解决风险。
+- raw trace 完整保存，model context 使用压缩版。
+- trace 中记录 compaction 事件、输入大小、输出大小、保留规则和潜在风险。
+
+benchmark 目标：
+
+- 增加长任务、多轮失败恢复、大输出验证和跨文件修改任务。
+- 对比启用/禁用 compaction 的完成率、验证通过率、成本和失败类型。
+
+成功指标：
+
+- 超预算任务可以继续推进，而不是直接失败。
+- 压缩后不丢失关键约束和失败证据。
+- 相同任务在压缩开启后成本或上下文占用下降，且验证通过率不显著下降。
+
 ### v1.0：可行业对比的 Coding Agent
 
 目标：形成可以和其他 coding agent 对比的评估设置。
@@ -146,6 +226,7 @@ benchmark 目标：
 - 可配置模型 provider。
 - 强 workspace 安全规则。
 - 可复现 benchmark runner。
+- 成熟的上下文预算、working set 和长上下文压缩机制。
 - trace 查看器或 trace 导出。
 
 benchmark 目标：
@@ -167,6 +248,6 @@ benchmark 目标：
 - 长期记忆。
 - MCP 支持。
 - 自动创建 PR。
-- 广泛 provider 支持。
+- 广泛 provider 矩阵和 provider marketplace。
 
 这些能力可以在本地 agent loop 和 benchmark harness 稳定之后再加入。
