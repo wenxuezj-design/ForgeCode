@@ -490,6 +490,34 @@ test("readGitState protects ignored local files at task start", async () => {
   assert.equal(await readFile(join(root, "secrets", "nested.txt"), "utf8"), "nested secret\n");
 });
 
+test("readGitState protects subworkspaces inside ignored parent directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
+  const workspaceRoot = join(root, "ignored", "sub");
+  await runGit(root, ["init", "--quiet"]);
+  await writeFile(join(root, ".gitignore"), "ignored/\n");
+  await runGit(root, ["add", ".gitignore"]);
+  await runGit(root, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "ignore parent"]);
+  await mkdir(workspaceRoot, { recursive: true });
+  await writeFile(join(workspaceRoot, "file.txt"), "user\n");
+
+  const gitState = await readGitState(workspaceRoot);
+  const workspace = createWorkspace(workspaceRoot);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: gitState.dirtyPaths
+  });
+  const result = await tools.writeFile.execute({ path: "file.txt", content: "forge\n" });
+
+  assert.equal(gitState.available, true);
+  assert.deepEqual([...gitState.dirtyPaths].sort(), ["."]);
+  assert.equal(result.success, false);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "file.txt"
+  });
+  assert.equal(await readFile(join(workspaceRoot, "file.txt"), "utf8"), "user\n");
+});
+
 test("readGitState ignores git environment overrides while probing status", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
   await runGit(root, ["init", "--quiet"]);

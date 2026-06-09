@@ -75,6 +75,10 @@ function toWorkspaceRelativePath(repoRoot: string, cwd: string, repoRelativePath
   const relativePath = normalizeGitPath(relative(cwd, absolutePath));
 
   if (isOutsideWorkspace(relativePath)) {
+    if (isDirectoryPrefix && containsPath(absolutePath, cwd)) {
+      return ".";
+    }
+
     return undefined;
   }
 
