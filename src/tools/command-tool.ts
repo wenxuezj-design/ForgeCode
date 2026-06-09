@@ -59,11 +59,22 @@ function isShellCommand(command: string): boolean {
   return shellCommands.has(shellCommand);
 }
 
+function isPowerShellCommand(command: string): boolean {
+  const normalizedCommand = command.toLowerCase();
+  const shellCommand = normalizedCommand.endsWith(".exe")
+    ? normalizedCommand.slice(0, -".exe".length)
+    : normalizedCommand;
+
+  return shellCommand === "pwsh" || shellCommand === "powershell";
+}
+
 function hasShortOption(arg: string, option: string): boolean {
   return arg.startsWith("-") && !arg.startsWith("--") && arg.slice(1).includes(option);
 }
 
-function hasShellCommandStringOption(args: string[]): boolean {
+function hasShellCommandStringOption(command: string, args: string[]): boolean {
+  const powerShellCommand = isPowerShellCommand(command);
+
   return args.some((arg) => {
     const lowerArg = arg.toLowerCase();
 
@@ -77,7 +88,7 @@ function hasShellCommandStringOption(args: string[]): boolean {
       lowerArg.startsWith("-command") ||
       lowerArg.startsWith("-encodedcommand") ||
       lowerArg.startsWith("-encodedarguments") ||
-      lowerArg === "-e" ||
+      (powerShellCommand && lowerArg === "-e") ||
       lowerArg === "-enc" ||
       lowerArg === "-ec" ||
       (arg.startsWith("-") && !arg.startsWith("--") && lowerArg.includes("c"))
@@ -291,8 +302,78 @@ function parseGitCommand(args: string[]): { subcommand: string | undefined; subc
   };
 }
 
+function isGitAliasConfigKey(value: string): boolean {
+  const normalizedValue = value.toLowerCase();
+
+  return normalizedValue.startsWith("alias.") && normalizedValue.length > "alias.".length;
+}
+
+function isGitBangAliasConfig(value: string): boolean {
+  const equalsIndex = value.indexOf("=");
+
+  if (equalsIndex === -1) {
+    return false;
+  }
+
+  return isGitAliasConfigKey(value.slice(0, equalsIndex)) && value.slice(equalsIndex + 1).trimStart().startsWith("!");
+}
+
+function isGitBangAliasConfigEnv(value: string): boolean {
+  const equalsIndex = value.indexOf("=");
+
+  if (equalsIndex === -1) {
+    return false;
+  }
+
+  const envValue = process.env[value.slice(equalsIndex + 1)] ?? "";
+
+  return isGitAliasConfigKey(value.slice(0, equalsIndex)) && envValue.trimStart().startsWith("!");
+}
+
+function hasDestructiveGitAliasConfig(args: string[]): boolean {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "-c") {
+      const config = args[index + 1] ?? "";
+      const splitValue = args[index + 2] ?? "";
+
+      if (isGitBangAliasConfig(config) || (isGitAliasConfigKey(config) && splitValue.trimStart().startsWith("!"))) {
+        return true;
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("-c") && arg.length > 2 && isGitBangAliasConfig(arg.slice(2))) {
+      return true;
+    }
+
+    if (arg === "--config-env") {
+      if (isGitBangAliasConfigEnv(args[index + 1] ?? "")) {
+        return true;
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--config-env=") && isGitBangAliasConfigEnv(arg.slice("--config-env=".length))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function isDestructiveGitCommand(args: string[]): boolean {
   const destructiveSubcommands = new Set(["reset", "clean", "checkout", "restore", "rm", "switch"]);
+
+  if (hasDestructiveGitAliasConfig(args)) {
+    return true;
+  }
+
   const { subcommand, subcommandArgs } = parseGitCommand(args);
 
   if (subcommand === undefined) {
@@ -345,7 +426,7 @@ function isDestructiveGitCommand(args: string[]): boolean {
 function isDestructiveCommand(command: string, args: string[], envDepth = 0): boolean {
   const normalizedCommand = normalizeCommandNameForRisk(command);
 
-  if (isShellCommand(normalizedCommand) && hasShellCommandStringOption(args)) {
+  if (isShellCommand(normalizedCommand) && hasShellCommandStringOption(normalizedCommand, args)) {
     return true;
   }
 

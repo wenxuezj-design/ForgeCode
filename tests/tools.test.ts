@@ -802,6 +802,18 @@ test("command tool refuses combined shell -ec commands by default", async () => 
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool does not treat shell -e script execution as command string by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  await writeFile(join(root, "script.sh"), "exit 0\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "sh", args: ["-e", "script.sh"] });
+
+  assert.equal(result.success, true);
+  assert.equal(result.metadata?.risk, "unknown");
+  assert.equal(result.metadata?.blockedAction, undefined);
+});
+
 test("command tool refuses path-qualified shell -c commands by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -811,6 +823,21 @@ test("command tool refuses path-qualified shell -c commands by default", async (
   const result = await tool.execute({ command: "/bin/sh", args: ["-c", "rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "/bin/sh -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses git bang aliases from global config by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({
+    command: "git",
+    args: ["-c", "alias.codexprobe=!rm sentinel.txt", "codexprobe"]
+  });
+
+  assertApprovalBlocked(result, "git -c alias.codexprobe=!rm sentinel.txt codexprobe");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
