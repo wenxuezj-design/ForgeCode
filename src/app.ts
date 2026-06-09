@@ -2,6 +2,7 @@ import { runTask } from "./core/run-task.js";
 import { createModelProvider } from "./providers/model-provider.js";
 import { createCommandTool } from "./tools/command-tool.js";
 import { createToolRegistry } from "./tools/registry.js";
+import { createSearchTextTool } from "./tools/search-tool.js";
 import { createWorkspaceTools } from "./tools/workspace-tools.js";
 import { readGitState } from "./workspace/git-state.js";
 import { createWorkspace } from "./workspace/workspace.js";
@@ -76,6 +77,7 @@ export async function runCli(args: string[]): Promise<CliResult> {
     tools.register(workspaceTools.listFiles);
     tools.register(workspaceTools.readFile);
     tools.register(workspaceTools.writeFile);
+    tools.register(createSearchTextTool(workspace));
     tools.register(createCommandTool({ cwd: workspace.rootPath }));
     const provider = createModelProvider({ name: "stub" });
     const result = await runTask({ task, provider, tools, workspace });
