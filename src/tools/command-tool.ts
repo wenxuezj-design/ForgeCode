@@ -28,7 +28,22 @@ function hasForceFlag(args: string[]): boolean {
   );
 }
 
-const shellCommands = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "mksh", "yash", "ash"]);
+const shellCommands = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "dash",
+  "ksh",
+  "fish",
+  "csh",
+  "tcsh",
+  "mksh",
+  "yash",
+  "ash",
+  "pwsh",
+  "powershell",
+  "cmd"
+]);
 const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
 
 function isShellCommand(command: string): boolean {
@@ -40,7 +55,18 @@ function hasShortOption(arg: string, option: string): boolean {
 }
 
 function hasShellCommandStringOption(args: string[]): boolean {
-  return args.some((arg) => arg === "-c" || (arg.startsWith("-") && !arg.startsWith("--") && arg.includes("c")));
+  return args.some((arg) => {
+    const lowerArg = arg.toLowerCase();
+
+    return (
+      arg === "-c" ||
+      lowerArg === "/c" ||
+      lowerArg === "--command" ||
+      lowerArg.startsWith("--command=") ||
+      (arg.startsWith("-") && !arg.startsWith("--") && arg.includes("c")) ||
+      (arg.startsWith("-") && !arg.startsWith("--") && lowerArg.startsWith("-command"))
+    );
+  });
 }
 
 function splitEnvCommandString(value: string): string[] {
@@ -96,7 +122,7 @@ function splitEnvCommandString(value: string): string[] {
 }
 
 function parseEnvCommand(args: string[], allowSplitString = true): { command: string | undefined; args: string[] } {
-  const optionsWithValues = new Set(["-u", "--unset", "-C", "--chdir", "-P", "--path"]);
+  const optionsWithValues = new Set(["-u", "--unset", "-C", "--chdir", "-P", "--path", "-a", "--argv0"]);
   let index = 0;
 
   while (index < args.length) {
@@ -128,7 +154,7 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
 
         parsedShortOption = true;
 
-        if (option === "u" || option === "C" || option === "P") {
+        if (option === "u" || option === "C" || option === "P" || option === "a") {
           shortOptionSkip = optionIndex + 1 < arg.length ? 1 : 2;
           break;
         }
@@ -159,7 +185,12 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
       continue;
     }
 
-    if (arg.startsWith("--unset=") || arg.startsWith("--chdir=") || arg.startsWith("--path=")) {
+    if (
+      arg.startsWith("--unset=") ||
+      arg.startsWith("--chdir=") ||
+      arg.startsWith("--path=") ||
+      arg.startsWith("--argv0=")
+    ) {
       index += 1;
       continue;
     }
@@ -267,7 +298,12 @@ function isDestructiveGitCommand(args: string[]): boolean {
   }
 
   if (subcommand === "tag") {
-    return subcommandArgs.some((arg) => arg === "-d" || arg === "--delete");
+    return subcommandArgs.some(
+      (arg) =>
+        arg === "-d" ||
+        arg === "--delete" ||
+        (arg.startsWith("-") && !arg.startsWith("--") && (arg.includes("d") || arg.includes("D")))
+    );
   }
 
   if (subcommand === "push") {
@@ -309,10 +345,7 @@ function isDestructiveCommand(command: string, args: string[], envDepth = 0): bo
 }
 
 function isSafeGitCommand(args: string[]): boolean {
-  return (
-    args[0] === "status" &&
-    args.slice(1).every((arg) => arg === "--short" || arg === "--porcelain" || arg === "-s")
-  );
+  return args[0] === "status" && (args.length === 1 || (args.length === 2 && args[1] === "--short"));
 }
 
 function isSafeNpmCommand(args: string[]): boolean {

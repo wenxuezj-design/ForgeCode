@@ -260,6 +260,22 @@ test("command tool refuses path-qualified git safe names with allow-safe policy"
   assertApprovalBlocked(result, "./git status --short", "Command risk is not safe.", "unknown");
 });
 
+test("command tool refuses undocumented git status shorthand with allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({ command: "git", args: ["status", "-s"] });
+
+  assertApprovalBlocked(result, "git status -s", "Command risk is not safe.", "unknown");
+});
+
+test("command tool refuses git status porcelain with allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({ command: "git", args: ["status", "--porcelain"] });
+
+  assertApprovalBlocked(result, "git status --porcelain", "Command risk is not safe.", "unknown");
+});
+
 test("command tool refuses force flags by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const tool = createCommandTool({ cwd: root });
@@ -326,6 +342,42 @@ test("command tool refuses path-qualified dash command strings by default", asyn
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses fish command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "fish", args: ["--command", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "fish --command rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses powershell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "pwsh", args: ["-Command", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "pwsh -Command rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses cmd command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "cmd", args: ["/c", "del sentinel.txt"] });
+
+  assertApprovalBlocked(result, "cmd /c del sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses env-wrapped shell command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -359,6 +411,42 @@ test("command tool refuses env-wrapped destructive utilities by default", async 
   const result = await tool.execute({ command: "/usr/bin/env", args: ["rm", "sentinel.txt"] });
 
   assertApprovalBlocked(result, "/usr/bin/env rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env argv0 destructive utilities by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-a", "fake", "rm", "sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -a fake rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env argv0 equals destructive utilities by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["--argv0=fake", "rm", "sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env --argv0=fake rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env attached argv0 destructive utilities by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-afake", "rm", "sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -afake rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
@@ -583,9 +671,11 @@ test("command tool refuses destructive git tag deletes by default", async () => 
 
   const shortDelete = await tool.execute({ command: "git", args: ["tag", "-d", "v1"] });
   const longDelete = await tool.execute({ command: "git", args: ["tag", "--delete", "v1"] });
+  const combinedDelete = await tool.execute({ command: "git", args: ["tag", "-df", "v1"] });
 
   assertApprovalBlocked(shortDelete, "git tag -d v1");
   assertApprovalBlocked(longDelete, "git tag --delete v1");
+  assertApprovalBlocked(combinedDelete, "git tag -df v1");
 });
 
 test("command tool refuses destructive git push deletes by default", async () => {
