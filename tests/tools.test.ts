@@ -23,6 +23,44 @@ function assertApprovalBlocked(
   });
 }
 
+function isGitConfigEnvKey(key: string): boolean {
+  return key === "GIT_CONFIG_COUNT" || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key);
+}
+
+async function withClearedGitConfigEnv<T>(callback: () => Promise<T>): Promise<T> {
+  const originalEnv = new Map<string, string | undefined>();
+  const keysToClear = new Set(["GIT_CONFIG_COUNT"]);
+
+  for (const key of Object.keys(process.env)) {
+    if (isGitConfigEnvKey(key)) {
+      keysToClear.add(key);
+    }
+  }
+
+  for (const key of keysToClear) {
+    originalEnv.set(key, process.env[key]);
+    delete process.env[key];
+  }
+
+  try {
+    return await callback();
+  } finally {
+    for (const key of Object.keys(process.env)) {
+      if (isGitConfigEnvKey(key)) {
+        delete process.env[key];
+      }
+    }
+
+    for (const [key, value] of originalEnv) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 test("registry rejects duplicate tool names and executes registered tools", async () => {
   const registry = createToolRegistry();
 
@@ -242,22 +280,26 @@ test("command tool refuses path-qualified node safe names with allow-safe policy
 });
 
 test("command tool does not refuse read-only git commands by default", async () => {
-  const tool = createCommandTool({ cwd: process.cwd() });
+  await withClearedGitConfigEnv(async () => {
+    const tool = createCommandTool({ cwd: process.cwd() });
 
-  const result = await tool.execute({ command: "git", args: ["status", "--short"] });
+    const result = await tool.execute({ command: "git", args: ["status", "--short"] });
 
-  assert.equal(result.success, true);
-  assert.equal(result.metadata?.blockedAction, undefined);
+    assert.equal(result.success, true);
+    assert.equal(result.metadata?.blockedAction, undefined);
+  });
 });
 
 test("command tool allows read-only git status with allow-safe policy", async () => {
-  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+  await withClearedGitConfigEnv(async () => {
+    const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
 
-  const result = await tool.execute({ command: "git", args: ["status", "--short"] });
+    const result = await tool.execute({ command: "git", args: ["status", "--short"] });
 
-  assert.equal(result.success, true);
-  assert.equal(result.metadata?.risk, "safe");
-  assert.equal(result.metadata?.blockedAction, undefined);
+    assert.equal(result.success, true);
+    assert.equal(result.metadata?.risk, "safe");
+    assert.equal(result.metadata?.blockedAction, undefined);
+  });
 });
 
 test("command tool refuses executable git status global config under allow-safe policy", async () => {
