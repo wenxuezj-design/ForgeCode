@@ -334,6 +334,18 @@ test("command tool refuses env attached split-string shell command strings by de
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses env combined split-string shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-iSsh -c rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -iSsh -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses env split-string shell commands after assignments by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");

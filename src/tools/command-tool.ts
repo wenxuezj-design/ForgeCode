@@ -101,8 +101,18 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
       return parseEnvCommand([...splitArgs, ...args.slice(index + 2)], false);
     }
 
-    if (allowSplitString && arg.startsWith("-S") && arg.length > 2) {
-      return parseEnvCommand([...splitEnvCommandString(arg.slice(2)), ...args.slice(index + 1)], false);
+    if (allowSplitString && arg.startsWith("-") && !arg.startsWith("--")) {
+      const splitOptionIndex = arg.indexOf("S", 1);
+
+      if (splitOptionIndex !== -1) {
+        const splitValue = arg.slice(splitOptionIndex + 1);
+        const splitArgs = splitValue.length > 0
+          ? splitEnvCommandString(splitValue)
+          : splitEnvCommandString(args[index + 1] ?? "");
+        const remainingArgs = splitValue.length > 0 ? args.slice(index + 1) : args.slice(index + 2);
+
+        return parseEnvCommand([...splitArgs, ...remainingArgs], false);
+      }
     }
 
     if (allowSplitString && arg.startsWith("--split-string=")) {
