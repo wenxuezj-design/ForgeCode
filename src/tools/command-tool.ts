@@ -28,8 +28,10 @@ function hasForceFlag(args: string[]): boolean {
   );
 }
 
+const shellCommands = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "mksh", "yash", "ash"]);
+
 function isShellCommand(command: string): boolean {
-  return command === "sh" || command === "bash" || command === "zsh";
+  return shellCommands.has(command);
 }
 
 function hasShellCommandStringOption(args: string[]): boolean {

@@ -314,6 +314,18 @@ test("command tool refuses path-qualified combined shell -lc commands by default
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses path-qualified dash command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/bin/dash", args: ["-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/bin/dash -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses env-wrapped shell command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -323,6 +335,18 @@ test("command tool refuses env-wrapped shell command strings by default", async 
   const result = await tool.execute({ command: "/usr/bin/env", args: ["bash", "-lc", "rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "/usr/bin/env bash -lc rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env-wrapped dash command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["/bin/dash", "-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env /bin/dash -c rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
