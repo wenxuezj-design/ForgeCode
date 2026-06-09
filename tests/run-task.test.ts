@@ -97,6 +97,93 @@ test("passes provider trace events as snapshots", async () => {
   assert.equal(firstEvents?.length, 0);
 });
 
+test("records task-start git state as protection evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  const provider = createScriptedProvider([
+    { kind: "final", content: "Recorded git state." }
+  ]);
+
+  const result = await runTask({
+    task: "Inspect git state",
+    provider,
+    tools,
+    workspace,
+    maxSteps: 5,
+    initialGitState: {
+      available: true,
+      dirtyPaths: ["README.md"]
+    }
+  });
+  const protectionEvent = result.trace.events.find(
+    (event) => event.type === "protection" && event.metadata?.kind === "git_state"
+  );
+
+  assert.equal(protectionEvent?.message, "Task-start git state captured.");
+  assert.deepEqual(protectionEvent?.metadata?.dirtyPaths, ["README.md"]);
+  assert.equal(protectionEvent?.metadata?.gitAvailable, true);
+});
+
+test("records context and protection trace events from tool metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
+  const workspace = createWorkspace(root);
+  const tools = createToolRegistry();
+  tools.register({
+    name: "fake_context",
+    description: "Fake context evidence.",
+    async execute() {
+      return {
+        success: true,
+        content: "Found README.md",
+        metadata: {
+          context: {
+            query: "README",
+            matches: [{ path: "README.md", line: 1 }]
+          }
+        }
+      };
+    }
+  });
+  tools.register({
+    name: "fake_blocked",
+    description: "Fake blocked action.",
+    async execute() {
+      return {
+        success: false,
+        content: "Blocked README.md",
+        metadata: {
+          blockedAction: {
+            kind: "user_changes",
+            path: "README.md",
+            reason: "Refusing to overwrite user-modified file."
+          }
+        }
+      };
+    }
+  });
+  const provider = createScriptedProvider([
+    { kind: "tool", toolName: "fake_context", input: {} },
+    { kind: "tool", toolName: "fake_blocked", input: {} },
+    { kind: "final", content: "Recorded context and protection evidence." }
+  ]);
+
+  const result = await runTask({ task: "Record evidence", provider, tools, workspace, maxSteps: 10 });
+  const contextEvent = result.trace.events.find((event) => event.type === "context");
+  const protectionEvent = result.trace.events.find(
+    (event) => event.type === "protection" && event.metadata?.kind === "user_changes"
+  );
+
+  assert.equal(contextEvent?.message, "Context captured from fake_context.");
+  assert.equal(contextEvent?.metadata?.toolName, "fake_context");
+  assert.deepEqual(protectionEvent?.metadata, {
+    kind: "user_changes",
+    path: "README.md",
+    reason: "Refusing to overwrite user-modified file.",
+    toolName: "fake_blocked"
+  });
+});
+
 test("emits plan, todo, tool progress, and final summary events", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-run-task-"));
   await writeFile(join(root, "README.md"), "# Old\nSENTINEL_LARGE_TOOL_RESULT_CONTENT\n");

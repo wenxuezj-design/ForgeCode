@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { runMicroBenchmarkTask } from "../dist/benchmarks/micro-runner.js";
+import { runMicroBenchmarkTask, truncateMicroBenchmarkOutput } from "../dist/benchmarks/micro-runner.js";
 
 test("runs a micro benchmark task and reports pass when verification succeeds", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-bench-"));
@@ -144,6 +144,13 @@ test("refuses unknown verification commands with the safe approval policy", asyn
 
   assert.equal(result.passed, false);
   assert.match(result.verificationOutput, /Command risk is not safe/);
+});
+
+test("bounds verbose benchmark verification output", () => {
+  const output = truncateMicroBenchmarkOutput(`${"x".repeat(200)}\n${"y".repeat(200)}`, 120);
+
+  assert.ok(output.length <= 200);
+  assert.match(output, /truncated/i);
 });
 
 test("names the npm test micro benchmark after its verification behavior", async () => {

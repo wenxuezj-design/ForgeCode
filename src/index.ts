@@ -12,7 +12,13 @@ export { createWorkspace } from "./workspace/workspace.js";
 export type { AgentEvent, AgentSession } from "./agent/session.js";
 export type { JsonValue, TraceEvent, TraceEventType, TraceMetadata, TraceRecorder } from "./agent/trace.js";
 export type { CoreApp } from "./core/app.js";
-export type { RunTaskEvent, RunTaskOptions, RunTaskResult, RunTaskTodo } from "./core/run-task.js";
+export type {
+  RunTaskEvent,
+  RunTaskInitialGitState,
+  RunTaskOptions,
+  RunTaskResult,
+  RunTaskTodo
+} from "./core/run-task.js";
 export type { BlockedActionEvidence, RunSummaryEvidence, VerificationEvidence } from "./core/run-summary.js";
 export type { AgentAction, AgentActionContext, ModelMessage, ModelProvider } from "./providers/model-provider.js";
 export type { ApprovalPolicy, CommandRisk, CreateCommandToolOptions } from "./tools/command-tool.js";

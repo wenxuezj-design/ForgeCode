@@ -4,6 +4,7 @@ import type {
   JsonValue,
   RunSummaryEvidence,
   RunTaskEvent,
+  RunTaskInitialGitState,
   RunTaskTodo,
   TraceEvent,
   TraceMetadata,
@@ -52,6 +53,11 @@ const runTaskEvent = {
   summary: runSummaryEvidence
 } satisfies RunTaskEvent;
 
+const runTaskInitialGitState = {
+  available: true,
+  dirtyPaths: ["README.md"]
+} satisfies RunTaskInitialGitState;
+
 const approvalPolicy: ApprovalPolicy = "allow-safe";
 const commandRisk: CommandRisk = "destructive";
 
@@ -60,6 +66,7 @@ const jsonValue: JsonValue = {
   toolSucceeded: toolResult.success ?? null,
   metadata: traceMetadata,
   todoStatus: runTaskTodo.status,
+  dirtyPaths: runTaskInitialGitState.dirtyPaths,
   runTaskEventType: runTaskEvent.type,
   approvalPolicy,
   commandRisk

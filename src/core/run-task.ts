@@ -21,15 +21,21 @@ export type RunTaskEvent =
   | { type: "tool_started"; message: string; toolName: string }
   | { type: "tool_finished"; message: string; toolName: string; success: boolean }
   | { type: "approval_required"; message: string }
-  | { type: "diff_available"; message: string; path: string }
+  | { type: "diff_available"; message: string; path: string; diff: string }
   | { type: "verification_result"; message: string; passed: boolean }
   | { type: "final_summary"; message: string; summary: RunSummaryEvidence };
+
+export interface RunTaskInitialGitState {
+  available: boolean;
+  dirtyPaths: string[];
+}
 
 export interface RunTaskOptions {
   task: string;
   provider: ModelProvider;
   tools: ToolRegistry;
   workspace: Workspace;
+  initialGitState?: RunTaskInitialGitState;
   maxSteps?: number;
   onEvent?: (event: RunTaskEvent) => void;
 }
@@ -210,6 +216,18 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
   const session = createAgentSession({ task: options.task });
   const maxSteps = options.maxSteps ?? 20;
 
+  if (options.initialGitState) {
+    session.trace.record({
+      type: "protection",
+      message: "Task-start git state captured.",
+      metadata: {
+        kind: "git_state",
+        gitAvailable: options.initialGitState.available,
+        dirtyPaths: [...options.initialGitState.dirtyPaths].sort()
+      }
+    });
+  }
+
   function finish(exitCode: number, summary: string): RunTaskResult {
     session.trace.record({ type: "final", message: summary });
 
@@ -279,12 +297,44 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
 
       if (result.metadata) {
         for (const blockedAction of asJsonValues(result.metadata.blockedAction)) {
+          const reason = readReason(blockedAction);
+
           session.trace.record({
             type: "approval",
-            message: readReason(blockedAction),
+            message: reason,
             metadata: { blockedAction }
           });
-          emit(options, { type: "approval_required", message: readReason(blockedAction) });
+          if (isJsonObject(blockedAction)) {
+            session.trace.record({
+              type: "protection",
+              message: reason,
+              metadata: {
+                ...blockedAction,
+                toolName: action.toolName
+              }
+            });
+          } else {
+            session.trace.record({
+              type: "protection",
+              message: reason,
+              metadata: {
+                blockedAction,
+                toolName: action.toolName
+              }
+            });
+          }
+          emit(options, { type: "approval_required", message: reason });
+        }
+
+        for (const context of asJsonValues(result.metadata.context)) {
+          session.trace.record({
+            type: "context",
+            message: `Context captured from ${action.toolName}.`,
+            metadata: {
+              toolName: action.toolName,
+              context
+            }
+          });
         }
 
         if (typeof result.metadata.diff === "string") {
@@ -300,7 +350,12 @@ export async function runTask(options: RunTaskOptions): Promise<RunTaskResult> {
                 modifiedFiles: [path]
               }
             });
-            emit(options, { type: "diff_available", message: `Diff available for ${path}`, path });
+            emit(options, {
+              type: "diff_available",
+              message: `Diff available for ${path}`,
+              path,
+              diff: result.metadata.diff
+            });
           }
         }
 

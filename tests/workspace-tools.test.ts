@@ -249,6 +249,36 @@ test("workspace write tool refuses dirty files through symlink aliases", async (
   assert.equal(await readFile(join(root, "real.txt"), "utf8"), "user\n");
 });
 
+test("workspace tools reject symlink reads outside the root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  const outside = await mkdtemp(join(tmpdir(), "forgecode-outside-"));
+  await writeFile(join(outside, "secret.txt"), "outside\n");
+  await symlink(join(outside, "secret.txt"), join(root, "alias.txt"));
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace);
+
+  await assert.rejects(
+    () => tools.readFile.execute({ path: "alias.txt" }),
+    /outside the workspace/i
+  );
+});
+
+test("workspace tools reject symlink writes outside the root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  const outside = await mkdtemp(join(tmpdir(), "forgecode-outside-"));
+  const outsideFile = join(outside, "secret.txt");
+  await writeFile(outsideFile, "outside\n");
+  await symlink(outsideFile, join(root, "alias.txt"));
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace);
+
+  await assert.rejects(
+    () => tools.writeFile.execute({ path: "alias.txt", content: "forge\n" }),
+    /outside the workspace/i
+  );
+  assert.equal(await readFile(outsideFile, "utf8"), "outside\n");
+});
+
 test("workspace write tool refuses dirty files through hard-link aliases", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
   await writeFile(join(root, "real.txt"), "user\n");

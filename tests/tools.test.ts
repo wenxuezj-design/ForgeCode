@@ -290,6 +290,15 @@ test("command tool does not refuse read-only git commands by default", async () 
   });
 });
 
+test("command tool refuses plain git push by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "git", args: ["push", "origin", "HEAD"] });
+
+  assertApprovalBlocked(result, "git push origin HEAD");
+});
+
 test("command tool allows read-only git status with allow-safe policy", async () => {
   await withClearedGitConfigEnv(async () => {
     const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });

@@ -504,22 +504,7 @@ function isDestructiveGitCommand(args: string[], context: RiskContext): boolean 
   }
 
   if (subcommand === "push") {
-    return subcommandArgs.some(
-      (arg) =>
-        arg === "--delete" ||
-        arg === "-d" ||
-        arg === "-D" ||
-        arg === "--mirror" ||
-        arg === "--prune" ||
-        arg === "--force" ||
-        arg.startsWith("--force=") ||
-        arg.startsWith("--force-") ||
-        arg.startsWith(":") ||
-        arg.startsWith("+") ||
-        hasShortOption(arg, "d") ||
-        hasShortOption(arg, "D") ||
-        hasShortOption(arg, "f")
-    );
+    return true;
   }
 
   return false;

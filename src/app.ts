@@ -9,7 +9,9 @@ import { createWorkspaceTools } from "./tools/workspace-tools.js";
 import { readGitState } from "./workspace/git-state.js";
 import { createWorkspace } from "./workspace/workspace.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
+const MAX_DIFF_PREVIEW_LINES = 20;
+const MAX_DIFF_PREVIEW_CHARS = 1_200;
 
 export interface CliResult {
   exitCode: number;
@@ -65,6 +67,19 @@ export function renderSummary(evidence: RunSummaryEvidence): string[] {
   ];
 }
 
+function renderDiffPreview(diff: string): string {
+  const lines = diff.split(/\r?\n/);
+  let preview = lines.slice(0, MAX_DIFF_PREVIEW_LINES).join("\n");
+  let truncated = lines.length > MAX_DIFF_PREVIEW_LINES;
+
+  if (preview.length > MAX_DIFF_PREVIEW_CHARS) {
+    preview = preview.slice(0, MAX_DIFF_PREVIEW_CHARS).trimEnd();
+    truncated = true;
+  }
+
+  return truncated ? `${preview}\n... diff truncated` : preview;
+}
+
 export function renderRunEvent(event: RunTaskEvent): string | undefined {
   switch (event.type) {
     case "plan_started":
@@ -74,9 +89,10 @@ export function renderRunEvent(event: RunTaskEvent): string | undefined {
     case "tool_started":
     case "tool_finished":
     case "approval_required":
-    case "diff_available":
     case "verification_result":
       return `Progress: ${event.message}`;
+    case "diff_available":
+      return `Progress: ${event.message}\nDiff:\n${renderDiffPreview(event.diff)}`;
     case "final_summary":
       return undefined;
     default:
@@ -155,6 +171,10 @@ export async function runCli(args: string[]): Promise<CliResult> {
       provider,
       tools,
       workspace,
+      initialGitState: {
+        available: gitState.available,
+        dirtyPaths: [...gitState.dirtyPaths].sort()
+      },
       onEvent(event) {
         const line = renderRunEvent(event);
 

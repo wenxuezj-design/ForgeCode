@@ -112,6 +112,21 @@ function withTrailingSlash(path: string): string {
   return path.endsWith("/") ? path : `${path}/`;
 }
 
+function isRealPathInsideRoot(rootRealPath: string, targetRealPath: string): boolean {
+  const normalizedRoot = normalizeAbsolutePath(rootRealPath);
+  const normalizedTarget = normalizeAbsolutePath(targetRealPath);
+
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(withTrailingSlash(normalizedRoot));
+}
+
+function assertResolvedPathInsideWorkspace(rootRealPath: string, absolutePath: string, requestedPath: string): void {
+  const targetRealPath = realPathThroughNearestExistingAncestor(absolutePath);
+
+  if (!targetRealPath || !isRealPathInsideRoot(rootRealPath, targetRealPath)) {
+    throw new Error(`Path resolves outside the workspace: ${requestedPath}`);
+  }
+}
+
 interface DirtyPathSnapshot {
   paths: Set<string>;
   fileIdentities: Set<string>;
@@ -268,6 +283,8 @@ export function createWorkspaceTools(
   workspace: Workspace,
   options: CreateWorkspaceToolsOptions = {}
 ): WorkspaceTools {
+  const rootAbsolutePath = workspace.resolvePath(".");
+  const rootRealPath = realPathForExistingPath(rootAbsolutePath) ?? normalizeAbsolutePath(rootAbsolutePath);
   const dirtyPathsAtStart = createDirtyPathSnapshot(workspace, options.dirtyPathsAtStart);
   const writtenPaths = new Set<string>();
   const writtenRealPaths = new Set<string>();
@@ -290,9 +307,11 @@ export function createWorkspaceTools(
       description: "Read a UTF-8 file from the workspace.",
       async execute(input) {
         const path = readStringInput(input, "path");
+        const absolutePath = workspace.resolvePath(path);
+        assertResolvedPathInsideWorkspace(rootRealPath, absolutePath, path);
 
         return {
-          content: await readFile(workspace.resolvePath(path), "utf8")
+          content: await readFile(absolutePath, "utf8")
         };
       }
     },
@@ -303,6 +322,7 @@ export function createWorkspaceTools(
         const path = readStringInput(input, "path");
         const content = readStringInput(input, "content");
         const absolutePath = workspace.resolvePath(path);
+        assertResolvedPathInsideWorkspace(rootRealPath, absolutePath, path);
         const workspacePath = workspaceRelativePath(workspace, absolutePath);
 
         if (

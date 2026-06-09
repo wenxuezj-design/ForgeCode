@@ -25,12 +25,13 @@ npm run dev -- run "inspect this repository"
 
 ## 当前范围
 
-- CLI 入口，支持欢迎信息和版本输出。
-- `--help` 帮助信息和未知命令处理。
-- `run <task>` 命令，目前会创建 agent session。
-- 已建立核心运行时、agent session、工具、模型 provider、workspace 的模块边界。
-- 核心模块可以不依赖 shell 单独测试。
-- 后续会逐步加入 agent loop、工具调用、文件编辑、验证命令和 benchmark harness。
+- CLI 入口，支持欢迎信息、版本输出、帮助信息和未知命令处理。
+- `run <task>` 命令会创建 agent session，输出 plan/todo、工具进度和结构化 final summary。
+- 核心运行时记录 plan、todo、tool_call、tool_result、approval、diff、protection、context、verification、summary 等 trace 事件。
+- workspace 工具支持 list/read/write，写入时保留 diff metadata，并保护任务开始前的 git dirty 文件。
+- command 工具会捕获 stdout/stderr/exit code，默认拒绝 destructive command，并把验证结果纳入 summary evidence。
+- `search_text` 支持搜索优先的上下文发现。
+- micro-benchmark harness 覆盖本地运行、安全边界和上下文管理场景。
 
 ## 架构
 

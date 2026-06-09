@@ -40,6 +40,24 @@ type MicroBenchmarkTaskFileEntry = Omit<MicroBenchmarkTask, "workspaceRoot"> & {
   workspaceRoot?: string;
 };
 
+const DEFAULT_MICRO_BENCHMARK_OUTPUT_LIMIT = 4_000;
+
+export function truncateMicroBenchmarkOutput(
+  output: string,
+  maxChars = DEFAULT_MICRO_BENCHMARK_OUTPUT_LIMIT
+): string {
+  if (output.length <= maxChars) {
+    return output;
+  }
+
+  const marker = `\n... truncated ${output.length - maxChars} characters ...\n`;
+  const budget = Math.max(0, maxChars - marker.length);
+  const headChars = Math.ceil(budget / 2);
+  const tailChars = Math.floor(budget / 2);
+
+  return `${output.slice(0, headChars)}${marker}${tailChars > 0 ? output.slice(-tailChars) : ""}`;
+}
+
 function dirtyPathsAtStartForTask(task: MicroBenchmarkTask): Set<string> | undefined {
   return task.id === "dirty-protection" ? new Set(["README.md"]) : undefined;
 }
@@ -125,7 +143,7 @@ async function runScriptedBenchmarkTaskInWorkspace(
   return {
     id: task.id,
     passed: result.exitCode === 0 && expectationFailures.length === 0,
-    verificationOutput
+    verificationOutput: truncateMicroBenchmarkOutput(verificationOutput)
   };
 }
 
@@ -170,9 +188,11 @@ export async function runMicroBenchmarkTask(task: MicroBenchmarkTask): Promise<M
   return {
     id: task.id,
     passed: verification.content.startsWith("exitCode=0"),
-    verificationOutput: formatCommandVerificationOutput(
-      verification.content,
-      verification.metadata?.blockedAction
+    verificationOutput: truncateMicroBenchmarkOutput(
+      formatCommandVerificationOutput(
+        verification.content,
+        verification.metadata?.blockedAction
+      )
     )
   };
 }

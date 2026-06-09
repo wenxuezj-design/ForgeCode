@@ -58,7 +58,7 @@ test("prints the current version", async () => {
   const result = await runCli(["--version"]);
 
   assert.equal(result.exitCode, 0);
-  assert.equal(result.stdout.trim(), "0.1.0");
+  assert.equal(result.stdout.trim(), "0.2.0");
   assert.equal(result.stderr, "");
 });
 
@@ -102,7 +102,7 @@ test("runs the agent loop for the run command", async () => {
     "- Blocked: none",
     "- Risks: none",
     "Provider final: No provider actions configured.",
-    "Trace events: 2"
+    "Trace events: 3"
   ]);
   assert.doesNotMatch(result.stdout, /^Plan:/m);
   assert.doesNotMatch(result.stdout, /^Todo:/m);
@@ -125,7 +125,12 @@ test("renders runtime events as readable progress", () => {
     { type: "tool_started", message: "Starting read_file", toolName: "read_file" },
     { type: "tool_finished", message: "read_file succeeded", toolName: "read_file", success: true },
     { type: "approval_required", message: "Destructive command requires approval." },
-    { type: "diff_available", message: "Diff available for README.md", path: "README.md" },
+    {
+      type: "diff_available",
+      message: "Diff available for README.md",
+      path: "README.md",
+      diff: "--- README.md\n+++ README.md\n@@\n-old\n+new"
+    },
     { type: "verification_result", message: "npm test exitCode=0", passed: true },
     {
       type: "final_summary",
@@ -148,7 +153,7 @@ test("renders runtime events as readable progress", () => {
     "Progress: Starting read_file",
     "Progress: read_file succeeded",
     "Progress: Destructive command requires approval.",
-    "Progress: Diff available for README.md",
+    "Progress: Diff available for README.md\nDiff:\n--- README.md\n+++ README.md\n@@\n-old\n+new",
     "Progress: npm test exitCode=0",
     undefined
   ]);
