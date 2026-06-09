@@ -36,6 +36,34 @@ function hasShellCommandStringOption(args: string[]): boolean {
   return args.some((arg) => arg === "-c" || (arg.startsWith("-") && !arg.startsWith("--") && arg.includes("c")));
 }
 
+function parseEnvCommand(args: string[]): { command: string | undefined; args: string[] } {
+  let index = 0;
+
+  while (index < args.length) {
+    const arg = args[index];
+
+    if (arg === "-u" || arg === "--unset") {
+      index += 2;
+      continue;
+    }
+
+    if (arg.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(arg)) {
+      index += 1;
+      continue;
+    }
+
+    return {
+      command: arg,
+      args: args.slice(index + 1)
+    };
+  }
+
+  return {
+    command: undefined,
+    args: []
+  };
+}
+
 function parseGitCommand(args: string[]): { subcommand: string | undefined; subcommandArgs: string[] } {
   const globalOptionsWithValues = new Set([
     "-C",
@@ -115,12 +143,41 @@ function isDestructiveGitCommand(args: string[]): boolean {
   return false;
 }
 
+function isSafeGitCommand(args: string[]): boolean {
+  const { subcommand, subcommandArgs } = parseGitCommand(args);
+
+  return (
+    subcommand === "status" &&
+    subcommandArgs.every((arg) => arg === "--short" || arg === "--porcelain" || arg === "-s")
+  );
+}
+
+function isSafeNpmCommand(args: string[]): boolean {
+  return (
+    (args.length === 1 && args[0] === "test") ||
+    (args.length === 2 && args[0] === "run" && (args[1] === "typecheck" || args[1] === "build"))
+  );
+}
+
+function isSafeNodeCommand(args: string[]): boolean {
+  return args.length === 1 && args[0] === "--version";
+}
+
 function classifyCommand(command: string, args: string[]): CommandRisk {
   const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
   const normalizedCommand = normalizeCommandName(command);
 
   if (isShellCommand(normalizedCommand) && hasShellCommandStringOption(args)) {
     return "destructive";
+  }
+
+  if (normalizedCommand === "env") {
+    const envCommand = parseEnvCommand(args);
+    const normalizedEnvCommand = envCommand.command ? normalizeCommandName(envCommand.command) : undefined;
+
+    if (normalizedEnvCommand && isShellCommand(normalizedEnvCommand) && hasShellCommandStringOption(envCommand.args)) {
+      return "destructive";
+    }
   }
 
   if (normalizedCommand === "git" && isDestructiveGitCommand(args)) {
@@ -131,12 +188,15 @@ function classifyCommand(command: string, args: string[]): CommandRisk {
     return "destructive";
   }
 
-  if (
-    normalizedCommand === "npm" ||
-    normalizedCommand === "node" ||
-    normalizedCommand === "tsc" ||
-    normalizedCommand === "npx"
-  ) {
+  if (normalizedCommand === "node" && isSafeNodeCommand(args)) {
+    return "safe";
+  }
+
+  if (normalizedCommand === "npm" && isSafeNpmCommand(args)) {
+    return "safe";
+  }
+
+  if (normalizedCommand === "git" && isSafeGitCommand(args)) {
     return "safe";
   }
 

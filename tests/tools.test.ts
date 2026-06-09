@@ -201,12 +201,30 @@ test("command tool refuses unknown commands with allow-safe policy", async () =>
   assert.equal(result.metadata?.risk, "unknown");
 });
 
+test("command tool refuses node eval with allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({ command: "node", args: ["-e", ""] });
+
+  assertApprovalBlocked(result, "node -e ", "Command risk is not safe.", "unknown");
+});
+
 test("command tool does not refuse read-only git commands by default", async () => {
   const tool = createCommandTool({ cwd: process.cwd() });
 
   const result = await tool.execute({ command: "git", args: ["status", "--short"] });
 
   assert.equal(result.success, true);
+  assert.equal(result.metadata?.blockedAction, undefined);
+});
+
+test("command tool allows read-only git status with allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({ command: "git", args: ["status", "--short"] });
+
+  assert.equal(result.success, true);
+  assert.equal(result.metadata?.risk, "safe");
   assert.equal(result.metadata?.blockedAction, undefined);
 });
 
@@ -261,6 +279,18 @@ test("command tool refuses path-qualified combined shell -lc commands by default
   const result = await tool.execute({ command: "/bin/bash", args: ["-lc", "rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "/bin/bash -lc rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env-wrapped shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["bash", "-lc", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env bash -lc rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
