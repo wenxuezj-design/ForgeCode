@@ -45,16 +45,18 @@ const shellCommands = new Set([
   "yash",
   "ash",
   "pwsh",
-  "pwsh.exe",
   "powershell",
-  "powershell.exe",
-  "cmd",
-  "cmd.exe"
+  "cmd"
 ]);
 const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
 
 function isShellCommand(command: string): boolean {
-  return shellCommands.has(command);
+  const normalizedCommand = command.toLowerCase();
+  const shellCommand = normalizedCommand.endsWith(".exe")
+    ? normalizedCommand.slice(0, -".exe".length)
+    : normalizedCommand;
+
+  return shellCommands.has(shellCommand);
 }
 
 function hasShortOption(arg: string, option: string): boolean {
@@ -67,8 +69,7 @@ function hasShellCommandStringOption(args: string[]): boolean {
 
     return (
       lowerArg === "-c" ||
-      lowerArg === "/c" ||
-      lowerArg === "/k" ||
+      (lowerArg.startsWith("/") && (lowerArg.includes("/c") || lowerArg.includes("/k"))) ||
       lowerArg === "--command" ||
       lowerArg.startsWith("--command=") ||
       lowerArg === "--init-command" ||
