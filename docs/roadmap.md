@@ -80,6 +80,10 @@ benchmark 目标：
 
 目标：在最小 loop 之上补齐 Claude Code-style 的本地交互、安全边界和上下文管理，让 ForgeCode 不只是能跑 benchmark，也能像一个可靠的终端 coding partner。
 
+实施计划：[v0.2 本地开发体验](superpowers/plans/2026-06-08-v0-2-local-dev-experience.md)。
+
+验收清单：[v0.2 验收清单](v0.2-acceptance.md)。
+
 必需能力：
 
 - planning/todo 展示。

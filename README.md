@@ -48,6 +48,10 @@ ForgeCode 的核心目标是对标 Claude Code 的工程设计和使用体验。
 
 v0.1 的完成标准见 [docs/v0.1-acceptance.md](docs/v0.1-acceptance.md)。
 
+## v0.2 验收
+
+v0.2 的完成标准见 [docs/v0.2-acceptance.md](docs/v0.2-acceptance.md)。
+
 ## 版本分享说明
 
 按版本整理的分享说明文档见 [docs/release-shares/](docs/release-shares/)。每个版本使用独立目录，包含总览、机制说明等文档。
