@@ -326,6 +326,21 @@ test("command tool refuses env-wrapped shell command strings by default", async 
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses nested env-wrapped shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({
+    command: "/usr/bin/env",
+    args: ["/usr/bin/env", "sh", "-c", "rm sentinel.txt"]
+  });
+
+  assertApprovalBlocked(result, "/usr/bin/env /usr/bin/env sh -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses env split-string shell command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -489,14 +504,29 @@ test("command tool refuses destructive git branch deletes by default", async () 
   assertApprovalBlocked(combinedDelete, "git branch -df feature");
 });
 
+test("command tool refuses destructive git tag deletes by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const shortDelete = await tool.execute({ command: "git", args: ["tag", "-d", "v1"] });
+  const longDelete = await tool.execute({ command: "git", args: ["tag", "--delete", "v1"] });
+
+  assertApprovalBlocked(shortDelete, "git tag -d v1");
+  assertApprovalBlocked(longDelete, "git tag --delete v1");
+});
+
 test("command tool refuses destructive git push deletes by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const tool = createCommandTool({ cwd: root });
 
   const deleteFlag = await tool.execute({ command: "git", args: ["push", "origin", "--delete", "feature"] });
+  const shortDelete = await tool.execute({ command: "git", args: ["push", "origin", "-d", "feature"] });
+  const forceDelete = await tool.execute({ command: "git", args: ["push", "origin", "-D", "feature"] });
   const refDelete = await tool.execute({ command: "git", args: ["push", "origin", ":feature"] });
 
   assertApprovalBlocked(deleteFlag, "git push origin --delete feature");
+  assertApprovalBlocked(shortDelete, "git push origin -d feature");
+  assertApprovalBlocked(forceDelete, "git push origin -D feature");
   assertApprovalBlocked(refDelete, "git push origin :feature");
 });
 

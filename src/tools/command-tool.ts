@@ -174,6 +174,29 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
   };
 }
 
+function isDestructiveEnvWrappedCommand(args: string[], depth = 0): boolean {
+  if (depth >= 8) {
+    return false;
+  }
+
+  const envCommand = parseEnvCommand(args);
+  const normalizedEnvCommand = envCommand.command ? normalizeCommandName(envCommand.command) : undefined;
+
+  if (normalizedEnvCommand === undefined) {
+    return false;
+  }
+
+  if (isShellCommand(normalizedEnvCommand) && hasShellCommandStringOption(envCommand.args)) {
+    return true;
+  }
+
+  if (normalizedEnvCommand === "env") {
+    return isDestructiveEnvWrappedCommand(envCommand.args, depth + 1);
+  }
+
+  return false;
+}
+
 function parseGitCommand(args: string[]): { subcommand: string | undefined; subcommandArgs: string[] } {
   const globalOptionsWithValues = new Set([
     "-C",
@@ -246,8 +269,12 @@ function isDestructiveGitCommand(args: string[]): boolean {
     );
   }
 
+  if (subcommand === "tag") {
+    return subcommandArgs.some((arg) => arg === "-d" || arg === "--delete");
+  }
+
   if (subcommand === "push") {
-    return subcommandArgs.some((arg) => arg === "--delete" || arg.startsWith(":"));
+    return subcommandArgs.some((arg) => arg === "--delete" || arg === "-d" || arg === "-D" || arg.startsWith(":"));
   }
 
   return false;
@@ -279,13 +306,8 @@ function classifyCommand(command: string, args: string[]): CommandRisk {
     return "destructive";
   }
 
-  if (normalizedCommand === "env") {
-    const envCommand = parseEnvCommand(args);
-    const normalizedEnvCommand = envCommand.command ? normalizeCommandName(envCommand.command) : undefined;
-
-    if (normalizedEnvCommand && isShellCommand(normalizedEnvCommand) && hasShellCommandStringOption(envCommand.args)) {
-      return "destructive";
-    }
+  if (normalizedCommand === "env" && isDestructiveEnvWrappedCommand(args)) {
+    return "destructive";
   }
 
   if (normalizedCommand === "git" && isDestructiveGitCommand(args)) {
