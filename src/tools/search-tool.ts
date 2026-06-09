@@ -1,5 +1,7 @@
-import { readdir, readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { createInterface } from "node:readline";
 import type { Workspace } from "../workspace/workspace.js";
 import type { Tool, ToolResult } from "./registry.js";
 
@@ -43,45 +45,76 @@ function readInput(input: unknown): SearchTextInput {
 
   const maxResults = (input as Record<string, unknown>).maxResults ?? defaultMaxResults;
 
-  if (typeof maxResults !== "number" || !Number.isFinite(maxResults) || maxResults <= 0) {
-    throw new Error("Invalid positive number input: maxResults");
+  if (
+    typeof maxResults !== "number" ||
+    !Number.isFinite(maxResults) ||
+    !Number.isInteger(maxResults) ||
+    maxResults < 1
+  ) {
+    throw new Error("Invalid positive integer input: maxResults");
   }
 
   return {
     query,
-    maxResults: Math.floor(maxResults)
+    maxResults
   };
 }
 
-function isBinaryContent(buffer: Buffer): boolean {
-  return buffer.includes(0);
-}
+async function searchFile(
+  absolutePath: string,
+  relativePath: string,
+  query: string,
+  maxMatches: number
+): Promise<SearchMatch[]> {
+  if (maxMatches < 1) {
+    return [];
+  }
 
-async function searchFile(absolutePath: string, relativePath: string, query: string): Promise<SearchMatch[]> {
-  let buffer: Buffer;
+  const stream = createReadStream(absolutePath, { encoding: "utf8" });
+  const lineReader = createInterface({ input: stream, crlfDelay: Infinity });
+  const matches: SearchMatch[] = [];
+  let lineNumber = 0;
+  let stoppedEarly = false;
+  let binaryFile = false;
 
   try {
-    buffer = await readFile(absolutePath);
-  } catch {
-    return [];
-  }
+    for await (const line of lineReader) {
+      lineNumber += 1;
 
-  if (isBinaryContent(buffer)) {
-    return [];
-  }
+      if (line.includes("\0")) {
+        binaryFile = true;
+        stoppedEarly = true;
+        lineReader.close();
+        stream.destroy();
+        break;
+      }
 
-  const content = buffer.toString("utf8");
-  const matches: SearchMatch[] = [];
-  const lines = content.split(/\r?\n/);
+      if (line.includes(query)) {
+        matches.push({
+          path: relativePath,
+          lineNumber,
+          line: line.trim()
+        });
 
-  for (const [index, line] of lines.entries()) {
-    if (line.includes(query)) {
-      matches.push({
-        path: relativePath,
-        lineNumber: index + 1,
-        line: line.trim()
-      });
+        if (matches.length >= maxMatches) {
+          stoppedEarly = true;
+          lineReader.close();
+          stream.destroy();
+          break;
+        }
+      }
     }
+  } catch {
+    if (!stoppedEarly) {
+      return [];
+    }
+  } finally {
+    lineReader.close();
+    stream.destroy();
+  }
+
+  if (binaryFile) {
+    return [];
   }
 
   return matches;
@@ -126,7 +159,8 @@ async function searchDirectory(
     }
 
     const relativePath = workspaceRelativePath(rootPath, entryPath);
-    const fileMatches = await searchFile(entryPath, relativePath, query);
+    const remainingResults = maxResults - matches.length;
+    const fileMatches = await searchFile(entryPath, relativePath, query, remainingResults);
 
     for (const match of fileMatches) {
       if (matches.length >= maxResults) {

@@ -49,6 +49,40 @@ test("search text validates query and maxResults inputs", async () => {
 
   await assert.rejects(() => tool.execute({ query: "" }), /query/);
   await assert.rejects(() => tool.execute({ query: "ForgeCode", maxResults: 0 }), /maxResults/);
+  await assert.rejects(() => tool.execute({ query: "ForgeCode", maxResults: 0.5 }), /maxResults/);
+  await assert.rejects(() => tool.execute({ query: "ForgeCode", maxResults: 1.5 }), /maxResults/);
+});
+
+test("search text stops scanning a file once maxResults is reached", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-search-tool-"));
+  const lines = Array.from({ length: 25 }, (_, index) => `Needle ${index + 1}`).join("\n");
+  await writeFile(join(root, "many.txt"), `${lines}\n`);
+  const tool = createSearchTextTool(createWorkspace(root));
+  const originalIncludes = String.prototype.includes;
+  let queryChecks = 0;
+
+  try {
+    String.prototype.includes = function includesWithCount(
+      this: string,
+      searchString: string,
+      position?: number
+    ): boolean {
+      if (searchString === "Needle") {
+        queryChecks += 1;
+      }
+
+      return originalIncludes.call(this, searchString, position);
+    };
+
+    const result = await tool.execute({ query: "Needle", maxResults: 2 });
+
+    assert.equal(result.success, true);
+    assert.equal(result.content, "many.txt:1:Needle 1\nmany.txt:2:Needle 2");
+  } finally {
+    String.prototype.includes = originalIncludes;
+  }
+
+  assert.ok(queryChecks <= 2, `expected at most 2 query checks, saw ${queryChecks}`);
 });
 
 test("search text skips generated and vendor directories at any depth", async () => {
