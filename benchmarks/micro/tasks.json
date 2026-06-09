@@ -141,10 +141,11 @@
           "maxResults": 5
         }
       },
-      { "kind": "final", "content": "Searched for ForgeCode context." }
+      { "kind": "tool", "toolName": "read_file", "input": { "path": "README.md" } },
+      { "kind": "final", "content": "Searched for ForgeCode context and read README." }
     ],
     "expectations": {
-      "traceEvents": ["plan", "todo", "tool_call", "tool_result", "summary"],
+      "traceEvents": ["plan", "todo", "tool_call", "tool_result", "final", "summary"],
       "summaryFields": ["task", "providerFinal", "traceEventCount"]
     }
   },

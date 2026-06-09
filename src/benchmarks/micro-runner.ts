@@ -1,6 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { JsonValue } from "../agent/trace.js";
 import type { RunSummaryEvidence } from "../core/run-summary.js";
 import { runTask } from "../core/run-task.js";
 import type { AgentAction } from "../providers/model-provider.js";
@@ -43,33 +45,7 @@ function dirtyPathsAtStartForTask(task: MicroBenchmarkTask): Set<string> | undef
 }
 
 function hasSummaryField(evidence: RunSummaryEvidence, field: string): boolean {
-  const value = (evidence as unknown as Record<string, unknown>)[field];
-
-  if (value === undefined || value === null) {
-    return false;
-  }
-
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-
-  if (typeof value === "string") {
-    return value.trim().length > 0;
-  }
-
-  if (typeof value === "number") {
-    return Number.isFinite(value) && value > 0;
-  }
-
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  if (typeof value === "object") {
-    return Object.keys(value).length > 0;
-  }
-
-  return true;
+  return Object.prototype.hasOwnProperty.call(evidence, field);
 }
 
 function collectExpectationFailures(
@@ -95,8 +71,23 @@ function collectExpectationFailures(
   return failures;
 }
 
-async function runScriptedBenchmarkTask(task: MicroBenchmarkTask): Promise<MicroBenchmarkResult> {
-  const workspace = createWorkspace(task.workspaceRoot);
+async function createScriptedWorkspaceFixture(): Promise<string> {
+  const rootPath = await mkdtemp(join(tmpdir(), "forgecode-micro-bench-"));
+
+  await writeFile(
+    join(rootPath, "README.md"),
+    "# ForgeCode Benchmark Fixture\n\nForgeCode runtime benchmark context.\n"
+  );
+  await mkdir(join(rootPath, "dist"), { recursive: true });
+
+  return rootPath;
+}
+
+async function runScriptedBenchmarkTaskInWorkspace(
+  task: MicroBenchmarkTask,
+  workspaceRoot: string
+): Promise<MicroBenchmarkResult> {
+  const workspace = createWorkspace(workspaceRoot);
   const tools = createToolRegistry();
   const workspaceTools = createWorkspaceTools(workspace, {
     dirtyPathsAtStart: dirtyPathsAtStartForTask(task)
@@ -106,7 +97,7 @@ async function runScriptedBenchmarkTask(task: MicroBenchmarkTask): Promise<Micro
   tools.register(workspaceTools.readFile);
   tools.register(workspaceTools.writeFile);
   tools.register(createSearchTextTool(workspace));
-  tools.register(createCommandTool({ cwd: task.workspaceRoot }));
+  tools.register(createCommandTool({ cwd: workspaceRoot, approvalPolicy: "allow-safe" }));
 
   const result = await runTask({
     task: task.task,
@@ -138,6 +129,28 @@ async function runScriptedBenchmarkTask(task: MicroBenchmarkTask): Promise<Micro
   };
 }
 
+async function runScriptedBenchmarkTask(task: MicroBenchmarkTask): Promise<MicroBenchmarkResult> {
+  const workspaceRoot = await createScriptedWorkspaceFixture();
+
+  try {
+    return await runScriptedBenchmarkTaskInWorkspace(task, workspaceRoot);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+}
+
+function isJsonObject(value: JsonValue | undefined): value is { [key: string]: JsonValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatCommandVerificationOutput(content: string, blockedAction: JsonValue | undefined): string {
+  if (!isJsonObject(blockedAction) || typeof blockedAction.reason !== "string") {
+    return content;
+  }
+
+  return `${content}\nblockedAction=${blockedAction.reason}`;
+}
+
 export async function runMicroBenchmarkTask(task: MicroBenchmarkTask): Promise<MicroBenchmarkResult> {
   if (task.script) {
     return runScriptedBenchmarkTask(task);
@@ -151,13 +164,16 @@ export async function runMicroBenchmarkTask(task: MicroBenchmarkTask): Promise<M
     };
   }
 
-  const commandTool = createCommandTool({ cwd: task.workspaceRoot });
+  const commandTool = createCommandTool({ cwd: task.workspaceRoot, approvalPolicy: "allow-safe" });
   const verification = await commandTool.execute(task.verification);
 
   return {
     id: task.id,
     passed: verification.content.startsWith("exitCode=0"),
-    verificationOutput: verification.content
+    verificationOutput: formatCommandVerificationOutput(
+      verification.content,
+      verification.metadata?.blockedAction
+    )
   };
 }
 
