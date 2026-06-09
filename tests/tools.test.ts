@@ -322,6 +322,30 @@ test("command tool refuses env split-string shell command strings by default", a
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses env chdir shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: process.cwd() });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-C", root, "sh", "-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, `/usr/bin/env -C ${root} sh -c rm sentinel.txt`);
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env path shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-P", "/bin", "sh", "-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -P /bin sh -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses combined shell -ec commands by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");

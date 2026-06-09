@@ -89,6 +89,7 @@ function splitEnvCommandString(value: string): string[] {
 }
 
 function parseEnvCommand(args: string[]): { command: string | undefined; args: string[] } {
+  const optionsWithValues = new Set(["-u", "--unset", "-C", "--chdir", "-P", "--path"]);
   let index = 0;
 
   while (index < args.length) {
@@ -112,8 +113,13 @@ function parseEnvCommand(args: string[]): { command: string | undefined; args: s
       };
     }
 
-    if (arg === "-u" || arg === "--unset") {
+    if (optionsWithValues.has(arg)) {
       index += 2;
+      continue;
+    }
+
+    if (arg.startsWith("--unset=") || arg.startsWith("--chdir=") || arg.startsWith("--path=")) {
+      index += 1;
       continue;
     }
 
