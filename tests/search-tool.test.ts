@@ -7,6 +7,8 @@ import { test } from "node:test";
 import { createSearchTextTool } from "../dist/tools/search-tool.js";
 import { createWorkspace } from "../dist/workspace/workspace.js";
 
+const largeSearchFileBytes = 1_100_000;
+
 test("search text returns matching workspace lines and skips generated output", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-search-tool-"));
   await writeFile(join(root, "README.md"), "ForgeCode local agent\n");
@@ -53,36 +55,21 @@ test("search text validates query and maxResults inputs", async () => {
   await assert.rejects(() => tool.execute({ query: "ForgeCode", maxResults: 1.5 }), /maxResults/);
 });
 
-test("search text stops scanning a file once maxResults is reached", async () => {
+test("search text caps matches within a single file", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-search-tool-"));
   const lines = Array.from({ length: 25 }, (_, index) => `Needle ${index + 1}`).join("\n");
   await writeFile(join(root, "many.txt"), `${lines}\n`);
   const tool = createSearchTextTool(createWorkspace(root));
-  const originalIncludes = String.prototype.includes;
-  let queryChecks = 0;
 
-  try {
-    String.prototype.includes = function includesWithCount(
-      this: string,
-      searchString: string,
-      position?: number
-    ): boolean {
-      if (searchString === "Needle") {
-        queryChecks += 1;
-      }
+  const result = await tool.execute({ query: "Needle", maxResults: 2 });
 
-      return originalIncludes.call(this, searchString, position);
-    };
-
-    const result = await tool.execute({ query: "Needle", maxResults: 2 });
-
-    assert.equal(result.success, true);
-    assert.equal(result.content, "many.txt:1:Needle 1\nmany.txt:2:Needle 2");
-  } finally {
-    String.prototype.includes = originalIncludes;
-  }
-
-  assert.ok(queryChecks <= 2, `expected at most 2 query checks, saw ${queryChecks}`);
+  assert.equal(result.success, true);
+  assert.equal(result.content, "many.txt:1:Needle 1\nmany.txt:2:Needle 2");
+  assert.deepEqual(result.metadata?.context, {
+    query: "Needle",
+    resultCount: 2,
+    files: ["many.txt"]
+  });
 });
 
 test("search text skips generated and vendor directories at any depth", async () => {
@@ -118,6 +105,41 @@ test("search text skips binary files without failing the search", async () => {
   assert.equal(result.content, "notes.txt:1:ForgeCode text");
   assert.deepEqual(result.metadata?.context, {
     query: "ForgeCode",
+    resultCount: 1,
+    files: ["notes.txt"]
+  });
+});
+
+test("search text skips binary files even when a NUL follows an early match", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-search-tool-"));
+  await writeFile(join(root, "binary.txt"), "Needle first\n\0Needle hidden\n");
+  await writeFile(join(root, "notes.txt"), "Needle text\n");
+  const tool = createSearchTextTool(createWorkspace(root));
+
+  const result = await tool.execute({ query: "Needle", maxResults: 1 });
+
+  assert.equal(result.success, true);
+  assert.equal(result.content, "notes.txt:1:Needle text");
+  assert.deepEqual(result.metadata?.context, {
+    query: "Needle",
+    resultCount: 1,
+    files: ["notes.txt"]
+  });
+});
+
+test("search text skips very large one-line files instead of returning huge lines", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-search-tool-"));
+  await writeFile(join(root, "huge.txt"), `Needle ${"x".repeat(largeSearchFileBytes)}\n`);
+  await writeFile(join(root, "notes.txt"), "Needle small\n");
+  const tool = createSearchTextTool(createWorkspace(root));
+
+  const result = await tool.execute({ query: "Needle", maxResults: 2 });
+
+  assert.equal(result.success, true);
+  assert.equal(result.content, "notes.txt:1:Needle small");
+  assert.ok(result.content.length < 1_000, `expected bounded output, saw ${result.content.length} bytes`);
+  assert.deepEqual(result.metadata?.context, {
+    query: "Needle",
     resultCount: 1,
     files: ["notes.txt"]
   });

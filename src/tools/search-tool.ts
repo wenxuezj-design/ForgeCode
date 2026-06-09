@@ -1,7 +1,5 @@
-import { createReadStream } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { createInterface } from "node:readline";
 import type { Workspace } from "../workspace/workspace.js";
 import type { Tool, ToolResult } from "./registry.js";
 
@@ -17,6 +15,7 @@ interface SearchMatch {
 }
 
 const defaultMaxResults = 20;
+const maxSearchFileBytes = 1_000_000;
 const skippedDirectoryNames = new Set(["node_modules", "dist", ".git", ".worktrees", "coverage"]);
 
 function normalizeWorkspacePath(path: string): string {
@@ -70,51 +69,44 @@ async function searchFile(
     return [];
   }
 
-  const stream = createReadStream(absolutePath, { encoding: "utf8" });
-  const lineReader = createInterface({ input: stream, crlfDelay: Infinity });
-  const matches: SearchMatch[] = [];
-  let lineNumber = 0;
-  let stoppedEarly = false;
-  let binaryFile = false;
-
   try {
-    for await (const line of lineReader) {
-      lineNumber += 1;
+    const fileStats = await stat(absolutePath);
 
-      if (line.includes("\0")) {
-        binaryFile = true;
-        stoppedEarly = true;
-        lineReader.close();
-        stream.destroy();
-        break;
-      }
-
-      if (line.includes(query)) {
-        matches.push({
-          path: relativePath,
-          lineNumber,
-          line: line.trim()
-        });
-
-        if (matches.length >= maxMatches) {
-          stoppedEarly = true;
-          lineReader.close();
-          stream.destroy();
-          break;
-        }
-      }
-    }
-  } catch {
-    if (!stoppedEarly) {
+    if (fileStats.size > maxSearchFileBytes) {
       return [];
     }
-  } finally {
-    lineReader.close();
-    stream.destroy();
+  } catch {
+    return [];
   }
 
-  if (binaryFile) {
+  let buffer: Buffer;
+
+  try {
+    buffer = await readFile(absolutePath);
+  } catch {
     return [];
+  }
+
+  if (buffer.includes(0)) {
+    return [];
+  }
+
+  const content = buffer.toString("utf8");
+  const matches: SearchMatch[] = [];
+  const lines = content.split(/\r?\n/);
+
+  for (const [index, line] of lines.entries()) {
+    if (line.includes(query)) {
+      matches.push({
+        path: relativePath,
+        lineNumber: index + 1,
+        line: line.trim()
+      });
+
+      if (matches.length >= maxMatches) {
+        break;
+      }
+    }
   }
 
   return matches;
