@@ -16,17 +16,15 @@ interface SplitText {
 }
 
 function splitText(text: string): SplitText {
-  const normalized = text.replace(/\r\n/g, "\n");
-
-  if (normalized.length === 0) {
+  if (text.length === 0) {
     return {
       lines: [],
       endsWithNewline: false
     };
   }
 
-  const lines = normalized.split("\n");
-  const endsWithNewline = normalized.endsWith("\n");
+  const lines = text.split("\n");
+  const endsWithNewline = text.endsWith("\n");
 
   if (endsWithNewline) {
     lines.pop();
@@ -159,7 +157,7 @@ function formatOperations(operations: DiffOperation[], before: SplitText, after:
 }
 
 export function createTextDiff(input: TextDiffInput): string {
-  if (input.before === input.after) {
+  if (input.before === input.after && !input.isNewFile) {
     return "";
   }
 

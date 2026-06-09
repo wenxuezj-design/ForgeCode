@@ -28,6 +28,7 @@ function shouldClearGitEnv(key: string): boolean {
     key === "GIT_WORK_TREE" ||
     key === "GIT_INDEX_FILE" ||
     key === "GIT_CONFIG" ||
+    key === "GIT_CEILING_DIRECTORIES" ||
     key.startsWith("GIT_CONFIG_")
   );
 }
@@ -42,33 +43,6 @@ function safeGitEnv(): NodeJS.ProcessEnv {
   }
 
   return env;
-}
-
-function unquoteGitPath(path: string): string {
-  if (!path.startsWith("\"") || !path.endsWith("\"")) {
-    return path;
-  }
-
-  try {
-    return JSON.parse(path) as string;
-  } catch {
-    return path.slice(1, -1);
-  }
-}
-
-function parseDirtyPath(line: string): string | undefined {
-  const path = line.slice(3).trim();
-
-  if (!path) {
-    return undefined;
-  }
-
-  const renameSeparator = " -> ";
-  const finalPath = path.includes(renameSeparator)
-    ? path.slice(path.lastIndexOf(renameSeparator) + renameSeparator.length)
-    : path;
-
-  return unquoteGitPath(finalPath);
 }
 
 function normalizeGitPath(path: string): string {
@@ -97,9 +71,17 @@ function toWorkspaceRelativePath(repoRoot: string, cwd: string, repoRelativePath
 
 function parseDirtyPaths(stdout: string, repoRoot: string, cwd: string): Set<string> {
   const dirtyPaths = new Set<string>();
+  const records = stdout.split("\0");
 
-  for (const line of stdout.split(/\r?\n/)) {
-    const repoRelativePath = parseDirtyPath(line);
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+
+    if (!record) {
+      continue;
+    }
+
+    const status = record.slice(0, 2);
+    const repoRelativePath = record.slice(3);
 
     if (!repoRelativePath) {
       continue;
@@ -109,6 +91,10 @@ function parseDirtyPaths(stdout: string, repoRoot: string, cwd: string): Set<str
 
     if (workspaceRelativePath) {
       dirtyPaths.add(workspaceRelativePath);
+    }
+
+    if (status.includes("R") || status.includes("C")) {
+      index += 1;
     }
   }
 
@@ -182,7 +168,8 @@ export async function readGitState(cwd: string): Promise<GitState> {
       "-c",
       "core.untrackedCache=false",
       "status",
-      "--porcelain",
+      "--porcelain=v1",
+      "-z",
       "--untracked-files=all"
     ],
     env

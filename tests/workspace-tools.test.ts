@@ -84,6 +84,21 @@ test("workspace write tool reports new file diffs from /dev/null", async () => {
   assert.match(String(result.metadata?.diff), /\+hello/);
 });
 
+test("text diff reports empty new files as creation diffs", () => {
+  const diff = createTextDiff({ path: "empty.txt", before: "", after: "", isNewFile: true });
+
+  assert.match(diff, /--- \/dev\/null/);
+  assert.match(diff, /\+\+\+ empty\.txt/);
+  assert.match(diff, /@@/);
+});
+
+test("text diff shows CRLF-to-LF line ending changes", () => {
+  const diff = createTextDiff({ path: "README.md", before: "hello\r\n", after: "hello\n" });
+
+  assert.match(diff, /-hello\r/);
+  assert.match(diff, /\+hello/);
+});
+
 test("text diff shows newline-only changes", () => {
   const diff = createTextDiff({ path: "README.md", before: "hello\n", after: "hello" });
 
@@ -130,6 +145,26 @@ test("workspace write tool treats dirty directories as protecting children", asy
     path: "dir/file.txt"
   });
   assert.equal(await readFile(join(root, "dir", "file.txt"), "utf8"), "user\n");
+});
+
+test("workspace write tool treats bare dirty directory paths as protecting children", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  await mkdir(join(root, "sub"));
+  await writeFile(join(root, "sub", "file.txt"), "user\n");
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: new Set(["sub"])
+  });
+
+  const result = await tools.writeFile.execute({ path: "sub/file.txt", content: "forge\n" });
+
+  assert.equal(result.success, false);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "sub/file.txt"
+  });
+  assert.equal(await readFile(join(root, "sub", "file.txt"), "utf8"), "user\n");
 });
 
 test("workspace write tool snapshots dirty paths at creation", async () => {
@@ -193,6 +228,31 @@ test("readGitState returns dirty paths relative to a repository subdirectory wor
   assert.equal(await readFile(join(workspaceRoot, "file.txt"), "utf8"), "user\n");
 });
 
+test("readGitState parses non-ASCII dirty paths from porcelain z output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
+  await runGit(root, ["init", "--quiet"]);
+  await writeFile(join(root, "é.txt"), "user\n");
+
+  const gitState = await readGitState(root);
+
+  assert.equal(gitState.available, true);
+  assert.deepEqual([...gitState.dirtyPaths].sort(), ["é.txt"]);
+});
+
+test("readGitState uses rename targets containing arrows from porcelain z output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
+  await runGit(root, ["init", "--quiet"]);
+  await writeFile(join(root, "original.txt"), "old\n");
+  await runGit(root, ["add", "original.txt"]);
+  await runGit(root, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "init"]);
+  await runGit(root, ["mv", "original.txt", "target -> file.txt"]);
+
+  const gitState = await readGitState(root);
+
+  assert.equal(gitState.available, true);
+  assert.deepEqual([...gitState.dirtyPaths].sort(), ["target -> file.txt"]);
+});
+
 test("readGitState ignores git environment overrides while probing status", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
   await runGit(root, ["init", "--quiet"]);
@@ -207,6 +267,26 @@ test("readGitState ignores git environment overrides while probing status", asyn
     },
     async () => {
       const gitState = await readGitState(root);
+
+      assert.equal(gitState.available, true);
+      assert.deepEqual([...gitState.dirtyPaths].sort(), ["file.txt"]);
+    }
+  );
+});
+
+test("readGitState ignores git ceiling directory overrides while probing from subdirectories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
+  const workspaceRoot = join(root, "sub");
+  await mkdir(workspaceRoot);
+  await runGit(root, ["init", "--quiet"]);
+  await writeFile(join(workspaceRoot, "file.txt"), "user\n");
+
+  await withGitEnv(
+    {
+      GIT_CEILING_DIRECTORIES: root
+    },
+    async () => {
+      const gitState = await readGitState(workspaceRoot);
 
       assert.equal(gitState.available, true);
       assert.deepEqual([...gitState.dirtyPaths].sort(), ["file.txt"]);

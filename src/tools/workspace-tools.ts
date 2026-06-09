@@ -57,6 +57,10 @@ function hasDirtyPath(dirtyPaths: Set<string>, path: string): boolean {
     if (normalizedDirtyPath.endsWith("/") && normalizedPath.startsWith(normalizedDirtyPath)) {
       return true;
     }
+
+    if (normalizedPath.startsWith(`${normalizedDirtyPath}/`)) {
+      return true;
+    }
   }
 
   return false;
