@@ -228,6 +228,22 @@ test("command tool allows read-only git status with allow-safe policy", async ()
   assert.equal(result.metadata?.blockedAction, undefined);
 });
 
+test("command tool refuses git status with global config under allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({
+    command: "git",
+    args: ["-c", "core.fsmonitor=/tmp/hook", "status", "--short"]
+  });
+
+  assertApprovalBlocked(
+    result,
+    "git -c core.fsmonitor=/tmp/hook status --short",
+    "Command risk is not safe.",
+    "unknown"
+  );
+});
+
 test("command tool refuses force flags by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const tool = createCommandTool({ cwd: root });
@@ -291,6 +307,18 @@ test("command tool refuses env-wrapped shell command strings by default", async 
   const result = await tool.execute({ command: "/usr/bin/env", args: ["bash", "-lc", "rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "/usr/bin/env bash -lc rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env split-string shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-S", "bash -lc rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -S bash -lc rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 

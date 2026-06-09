@@ -36,11 +36,81 @@ function hasShellCommandStringOption(args: string[]): boolean {
   return args.some((arg) => arg === "-c" || (arg.startsWith("-") && !arg.startsWith("--") && arg.includes("c")));
 }
 
+function splitEnvCommandString(value: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: string | undefined;
+  let escaped = false;
+
+  for (const char of value) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      } else {
+        current += char;
+      }
+
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
 function parseEnvCommand(args: string[]): { command: string | undefined; args: string[] } {
   let index = 0;
 
   while (index < args.length) {
     const arg = args[index];
+
+    if (arg === "-S" || arg === "--split-string") {
+      const splitArgs = args[index + 1] ? splitEnvCommandString(args[index + 1]) : [];
+
+      return {
+        command: splitArgs[0],
+        args: [...splitArgs.slice(1), ...args.slice(index + 2)]
+      };
+    }
+
+    if (arg.startsWith("--split-string=")) {
+      const splitArgs = splitEnvCommandString(arg.slice("--split-string=".length));
+
+      return {
+        command: splitArgs[0],
+        args: [...splitArgs.slice(1), ...args.slice(index + 1)]
+      };
+    }
 
     if (arg === "-u" || arg === "--unset") {
       index += 2;
@@ -144,11 +214,9 @@ function isDestructiveGitCommand(args: string[]): boolean {
 }
 
 function isSafeGitCommand(args: string[]): boolean {
-  const { subcommand, subcommandArgs } = parseGitCommand(args);
-
   return (
-    subcommand === "status" &&
-    subcommandArgs.every((arg) => arg === "--short" || arg === "--porcelain" || arg === "-s")
+    args[0] === "status" &&
+    args.slice(1).every((arg) => arg === "--short" || arg === "--porcelain" || arg === "-s")
   );
 }
 
