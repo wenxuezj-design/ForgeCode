@@ -123,6 +123,7 @@ export function createWorkspaceTools(
 
         const fileExists = existsSync(absolutePath);
         const before = fileExists ? await readFile(absolutePath, "utf8") : "";
+        const diff = createTextDiff({ path: workspacePath, before, after: content, isNewFile: !fileExists });
         await writeFile(absolutePath, content);
         writtenPaths.add(workspacePath);
 
@@ -131,7 +132,7 @@ export function createWorkspaceTools(
           content: `Wrote ${workspacePath}`,
           metadata: {
             modifiedFiles: [workspacePath],
-            diff: createTextDiff({ path: workspacePath, before, after: content, isNewFile: !fileExists })
+            diff
           }
         };
       }

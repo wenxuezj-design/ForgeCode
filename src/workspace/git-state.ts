@@ -183,7 +183,8 @@ export async function readGitState(cwd: string): Promise<GitState> {
       "status",
       "--porcelain=v1",
       "-z",
-      "--untracked-files=all"
+      "--untracked-files=all",
+      "--ignored=matching"
     ],
     env
   );

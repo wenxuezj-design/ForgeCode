@@ -93,6 +93,24 @@ test("workspace write tool returns diff metadata for clean files", async () => {
   assert.match(String(result.metadata?.diff), /\+# New/);
 });
 
+test("workspace write tool returns bounded diff metadata for large changes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  const before = Array.from({ length: 700 }, (_, index) => `old ${index}`).join("\n");
+  const after = Array.from({ length: 700 }, (_, index) => `new ${index}`).join("\n");
+  await writeFile(join(root, "large.txt"), before);
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace);
+
+  const result = await tools.writeFile.execute({ path: "large.txt", content: after });
+
+  assert.equal(result.success, true);
+  assert.equal(await readFile(join(root, "large.txt"), "utf8"), after);
+  assert.deepEqual(result.metadata?.modifiedFiles, ["large.txt"]);
+  assert.match(String(result.metadata?.diff), /--- large\.txt/);
+  assert.match(String(result.metadata?.diff), /\+\+\+ large\.txt/);
+  assert.match(String(result.metadata?.diff), /omitted/i);
+});
+
 test("workspace write tool reports new file diffs from /dev/null", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
   const workspace = createWorkspace(root);
@@ -307,6 +325,47 @@ test("readGitState protects both old and new paths for renames", async () => {
     path: "original.txt"
   });
   await assert.rejects(() => readFile(join(root, "original.txt"), "utf8"), /ENOENT/);
+});
+
+test("readGitState protects ignored local files at task start", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
+  await runGit(root, ["init", "--quiet"]);
+  await writeFile(join(root, ".gitignore"), "secret.txt\nsecrets/\n");
+  await runGit(root, ["add", ".gitignore"]);
+  await runGit(root, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "ignore secrets"]);
+  await writeFile(join(root, "secret.txt"), "user secret\n");
+  await mkdir(join(root, "secrets"));
+  await writeFile(join(root, "secrets", "nested.txt"), "nested secret\n");
+
+  const gitState = await readGitState(root);
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: gitState.dirtyPaths
+  });
+  const result = await tools.writeFile.execute({ path: "secret.txt", content: "forge secret\n" });
+  const nestedResult = await tools.writeFile.execute({ path: "secrets/nested.txt", content: "forge nested\n" });
+
+  assert.equal(gitState.available, true);
+  assert.ok(gitState.dirtyPaths.has("secret.txt"));
+  assert.ok(
+    [...gitState.dirtyPaths].some(
+      (dirtyPath) => dirtyPath === "secrets/nested.txt" || dirtyPath === "secrets/"
+    )
+  );
+  assert.equal(result.success, false);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "secret.txt"
+  });
+  assert.equal(nestedResult.success, false);
+  assert.deepEqual(nestedResult.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "secrets/nested.txt"
+  });
+  assert.equal(await readFile(join(root, "secret.txt"), "utf8"), "user secret\n");
+  assert.equal(await readFile(join(root, "secrets", "nested.txt"), "utf8"), "nested secret\n");
 });
 
 test("readGitState ignores git environment overrides while probing status", async () => {
