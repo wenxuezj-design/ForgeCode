@@ -88,29 +88,27 @@ function splitEnvCommandString(value: string): string[] {
   return tokens;
 }
 
-function parseEnvCommand(args: string[]): { command: string | undefined; args: string[] } {
+function parseEnvCommand(args: string[], allowSplitString = true): { command: string | undefined; args: string[] } {
   const optionsWithValues = new Set(["-u", "--unset", "-C", "--chdir", "-P", "--path"]);
   let index = 0;
 
   while (index < args.length) {
     const arg = args[index];
 
-    if (arg === "-S" || arg === "--split-string") {
+    if (allowSplitString && (arg === "-S" || arg === "--split-string")) {
       const splitArgs = args[index + 1] ? splitEnvCommandString(args[index + 1]) : [];
 
-      return {
-        command: splitArgs[0],
-        args: [...splitArgs.slice(1), ...args.slice(index + 2)]
-      };
+      return parseEnvCommand([...splitArgs, ...args.slice(index + 2)], false);
     }
 
-    if (arg.startsWith("--split-string=")) {
+    if (allowSplitString && arg.startsWith("-S") && arg.length > 2) {
+      return parseEnvCommand([...splitEnvCommandString(arg.slice(2)), ...args.slice(index + 1)], false);
+    }
+
+    if (allowSplitString && arg.startsWith("--split-string=")) {
       const splitArgs = splitEnvCommandString(arg.slice("--split-string=".length));
 
-      return {
-        command: splitArgs[0],
-        args: [...splitArgs.slice(1), ...args.slice(index + 1)]
-      };
+      return parseEnvCommand([...splitArgs, ...args.slice(index + 1)], false);
     }
 
     if (optionsWithValues.has(arg)) {
