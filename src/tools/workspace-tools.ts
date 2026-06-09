@@ -1,6 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { relative, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import {
   createOmittedTextDiff,
   createTextDiff,
@@ -68,6 +68,38 @@ function realPathForExistingPath(absolutePath: string): string | undefined {
   }
 }
 
+function realPathThroughNearestExistingAncestor(absolutePath: string): string | undefined {
+  let currentPath = absolutePath;
+  const missingParts: string[] = [];
+
+  while (true) {
+    const realPath = realPathForExistingPath(currentPath);
+
+    if (realPath) {
+      return normalizeAbsolutePath(join(realPath, ...missingParts.reverse()));
+    }
+
+    const parentPath = dirname(currentPath);
+
+    if (parentPath === currentPath) {
+      return undefined;
+    }
+
+    missingParts.push(basename(currentPath));
+    currentPath = parentPath;
+  }
+}
+
+function fileIdentityForExistingPath(absolutePath: string): string | undefined {
+  try {
+    const stats = statSync(absolutePath);
+
+    return `${stats.dev}:${stats.ino}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function isExistingDirectory(absolutePath: string): boolean {
   try {
     return statSync(absolutePath).isDirectory();
@@ -82,6 +114,7 @@ function withTrailingSlash(path: string): string {
 
 interface DirtyPathSnapshot {
   paths: Set<string>;
+  fileIdentities: Set<string>;
   realPaths: Set<string>;
   realPathPrefixes: Set<string>;
 }
@@ -92,6 +125,7 @@ function createDirtyPathSnapshot(
 ): DirtyPathSnapshot {
   const snapshot: DirtyPathSnapshot = {
     paths: new Set(),
+    fileIdentities: new Set(),
     realPaths: new Set(),
     realPathPrefixes: new Set()
   };
@@ -103,6 +137,11 @@ function createDirtyPathSnapshot(
     try {
       const absoluteDirtyPath = workspace.resolvePath(dirtyPathForResolve(normalizedDirtyPath));
       const realDirtyPath = realPathForExistingPath(absoluteDirtyPath);
+      const dirtyFileIdentity = fileIdentityForExistingPath(absoluteDirtyPath);
+
+      if (dirtyFileIdentity) {
+        snapshot.fileIdentities.add(dirtyFileIdentity);
+      }
 
       if (!realDirtyPath) {
         continue;
@@ -144,7 +183,13 @@ function hasDirtyPath(snapshot: DirtyPathSnapshot, path: string, absolutePath: s
     }
   }
 
-  const realPath = realPathForExistingPath(absolutePath);
+  const fileIdentity = fileIdentityForExistingPath(absolutePath);
+
+  if (fileIdentity && snapshot.fileIdentities.has(fileIdentity)) {
+    return true;
+  }
+
+  const realPath = realPathThroughNearestExistingAncestor(absolutePath);
 
   if (realPath) {
     if (snapshot.realPaths.has(realPath)) {
@@ -164,6 +209,7 @@ function hasDirtyPath(snapshot: DirtyPathSnapshot, path: string, absolutePath: s
 function hasWrittenPath(
   writtenPaths: Set<string>,
   writtenRealPaths: Set<string>,
+  writtenFileIdentities: Set<string>,
   path: string,
   absolutePath: string
 ): boolean {
@@ -173,7 +219,13 @@ function hasWrittenPath(
 
   const realPath = realPathForExistingPath(absolutePath);
 
-  return realPath !== undefined && writtenRealPaths.has(realPath);
+  if (realPath !== undefined && writtenRealPaths.has(realPath)) {
+    return true;
+  }
+
+  const fileIdentity = fileIdentityForExistingPath(absolutePath);
+
+  return fileIdentity !== undefined && writtenFileIdentities.has(fileIdentity);
 }
 
 async function createDiffBeforeWrite(
@@ -219,6 +271,7 @@ export function createWorkspaceTools(
   const dirtyPathsAtStart = createDirtyPathSnapshot(workspace, options.dirtyPathsAtStart);
   const writtenPaths = new Set<string>();
   const writtenRealPaths = new Set<string>();
+  const writtenFileIdentities = new Set<string>();
 
   return {
     listFiles: {
@@ -254,7 +307,13 @@ export function createWorkspaceTools(
 
         if (
           hasDirtyPath(dirtyPathsAtStart, workspacePath, absolutePath) &&
-          !hasWrittenPath(writtenPaths, writtenRealPaths, workspacePath, absolutePath)
+          !hasWrittenPath(
+            writtenPaths,
+            writtenRealPaths,
+            writtenFileIdentities,
+            workspacePath,
+            absolutePath
+          )
         ) {
           return {
             success: false,
@@ -276,6 +335,12 @@ export function createWorkspaceTools(
 
         if (writtenRealPath) {
           writtenRealPaths.add(writtenRealPath);
+        }
+
+        const writtenFileIdentity = fileIdentityForExistingPath(absolutePath);
+
+        if (writtenFileIdentity) {
+          writtenFileIdentities.add(writtenFileIdentity);
         }
 
         return {

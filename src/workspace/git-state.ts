@@ -47,6 +47,10 @@ function isOutsideWorkspace(relativePath: string): boolean {
   return relativePath === ".." || relativePath.startsWith("../") || resolve(relativePath) === relativePath;
 }
 
+function containsPath(parentPath: string, childPath: string): boolean {
+  return !isOutsideWorkspace(normalizeGitPath(relative(parentPath, childPath)));
+}
+
 function hasGitMarker(cwd: string): boolean {
   let currentPath = resolve(cwd);
 
@@ -184,6 +188,10 @@ export async function readGitState(cwd: string): Promise<GitState> {
   }
 
   const repoRoot = await realpath(repoRootPath).catch(() => resolve(repoRootPath));
+
+  if (hasGitMarker(absoluteCwd) && !containsPath(repoRoot, absoluteCwd)) {
+    return conservativeGitState();
+  }
 
   const statusResult = await runGit(
     repoRoot,

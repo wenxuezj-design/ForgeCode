@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -249,6 +249,34 @@ test("workspace write tool refuses dirty files through symlink aliases", async (
   assert.equal(await readFile(join(root, "real.txt"), "utf8"), "user\n");
 });
 
+test("workspace write tool refuses dirty files through hard-link aliases", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  await writeFile(join(root, "real.txt"), "user\n");
+
+  try {
+    await link(join(root, "real.txt"), join(root, "alias.txt"));
+  } catch {
+    t.skip("hard links are not supported in this test workspace");
+    return;
+  }
+
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: new Set(["real.txt"])
+  });
+
+  const result = await tools.writeFile.execute({ path: "alias.txt", content: "forge\n" });
+
+  assert.equal(result.success, false);
+  assert.match(result.content, /user changes/i);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "alias.txt"
+  });
+  assert.equal(await readFile(join(root, "real.txt"), "utf8"), "user\n");
+});
+
 test("workspace write tool treats dirty directories as protecting children", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
   await mkdir(join(root, "dir"));
@@ -287,6 +315,26 @@ test("workspace write tool treats bare dirty directory paths as protecting child
     path: "sub/file.txt"
   });
   assert.equal(await readFile(join(root, "sub", "file.txt"), "utf8"), "user\n");
+});
+
+test("workspace write tool treats symlinked dirty directories as protecting new children", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-workspace-"));
+  await mkdir(join(root, "real"));
+  await symlink("real", join(root, "alias"));
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: new Set(["real/"])
+  });
+
+  const result = await tools.writeFile.execute({ path: "alias/new.txt", content: "forge\n" });
+
+  assert.equal(result.success, false);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "alias/new.txt"
+  });
+  await assert.rejects(() => readFile(join(root, "real", "new.txt"), "utf8"), /ENOENT/);
 });
 
 test("workspace write tool snapshots dirty paths at creation", async () => {
@@ -500,6 +548,32 @@ test("readGitState ignores git common directory overrides while probing status",
       assert.deepEqual([...gitState.dirtyPaths].sort(), ["file.txt"]);
     }
   );
+});
+
+test("readGitState fails closed when git discovery points outside the workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-git-state-"));
+  const externalRoot = await mkdtemp(join(tmpdir(), "forgecode-external-git-"));
+  await runGit(externalRoot, ["init", "--quiet"]);
+  await runGit(externalRoot, ["config", "core.worktree", externalRoot]);
+  await writeFile(join(root, ".git"), `gitdir: ${join(externalRoot, ".git")}\n`);
+  await writeFile(join(root, "file.txt"), "user\n");
+
+  const gitState = await readGitState(root);
+  const workspace = createWorkspace(root);
+  const tools = createWorkspaceTools(workspace, {
+    dirtyPathsAtStart: gitState.dirtyPaths
+  });
+  const result = await tools.writeFile.execute({ path: "file.txt", content: "forge\n" });
+
+  assert.equal(gitState.available, true);
+  assert.deepEqual([...gitState.dirtyPaths].sort(), ["."]);
+  assert.equal(result.success, false);
+  assert.deepEqual(result.metadata?.blockedAction, {
+    kind: "user_changes",
+    reason: "Refusing to overwrite user-modified file.",
+    path: "file.txt"
+  });
+  assert.equal(await readFile(join(root, "file.txt"), "utf8"), "user\n");
 });
 
 test("workspace tools reject paths outside the root", async () => {
