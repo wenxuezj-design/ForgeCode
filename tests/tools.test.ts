@@ -354,6 +354,30 @@ test("command tool refuses fish command strings by default", async () => {
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses fish init command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "fish", args: ["-C", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "fish -C rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses fish long init command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "fish", args: ["--init-command", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "fish --init-command rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses powershell command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -366,6 +390,18 @@ test("command tool refuses powershell command strings by default", async () => {
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses powershell encoded command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "pwsh", args: ["-EncodedCommand", "AAA="] });
+
+  assertApprovalBlocked(result, "pwsh -EncodedCommand AAA=");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses cmd command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -375,6 +411,18 @@ test("command tool refuses cmd command strings by default", async () => {
   const result = await tool.execute({ command: "cmd", args: ["/c", "del sentinel.txt"] });
 
   assertApprovalBlocked(result, "cmd /c del sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses cmd keepalive command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "cmd", args: ["/k", "del sentinel.txt"] });
+
+  assertApprovalBlocked(result, "cmd /k del sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 

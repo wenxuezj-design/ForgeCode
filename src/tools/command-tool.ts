@@ -59,12 +59,19 @@ function hasShellCommandStringOption(args: string[]): boolean {
     const lowerArg = arg.toLowerCase();
 
     return (
-      arg === "-c" ||
+      lowerArg === "-c" ||
       lowerArg === "/c" ||
+      lowerArg === "/k" ||
       lowerArg === "--command" ||
       lowerArg.startsWith("--command=") ||
-      (arg.startsWith("-") && !arg.startsWith("--") && arg.includes("c")) ||
-      (arg.startsWith("-") && !arg.startsWith("--") && lowerArg.startsWith("-command"))
+      lowerArg === "--init-command" ||
+      lowerArg.startsWith("--init-command=") ||
+      lowerArg.startsWith("-command") ||
+      lowerArg.startsWith("-encodedcommand") ||
+      lowerArg.startsWith("-encodedarguments") ||
+      lowerArg === "-enc" ||
+      lowerArg === "-ec" ||
+      (arg.startsWith("-") && !arg.startsWith("--") && lowerArg.includes("c"))
     );
   });
 }
