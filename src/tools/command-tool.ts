@@ -32,6 +32,10 @@ function isShellCommand(command: string): boolean {
   return command === "sh" || command === "bash" || command === "zsh";
 }
 
+function hasShellCommandStringOption(args: string[]): boolean {
+  return args.some((arg) => arg === "-c" || (arg.startsWith("-") && !arg.startsWith("--") && arg.includes("c")));
+}
+
 function parseGitCommand(args: string[]): { subcommand: string | undefined; subcommandArgs: string[] } {
   const globalOptionsWithValues = new Set([
     "-C",
@@ -115,7 +119,7 @@ function classifyCommand(command: string, args: string[]): CommandRisk {
   const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
   const normalizedCommand = normalizeCommandName(command);
 
-  if (isShellCommand(normalizedCommand) && args.includes("-c")) {
+  if (isShellCommand(normalizedCommand) && hasShellCommandStringOption(args)) {
     return "destructive";
   }
 

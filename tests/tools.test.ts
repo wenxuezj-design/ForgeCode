@@ -10,10 +10,12 @@ import { createToolRegistry } from "../dist/tools/registry.js";
 function assertApprovalBlocked(
   result: Awaited<ReturnType<ReturnType<typeof createCommandTool>["execute"]>>,
   command: string,
-  reason = "Destructive command requires approval."
+  reason = "Destructive command requires approval.",
+  risk = "destructive"
 ): void {
   assert.equal(result.success, false);
   assert.match(result.content, /requires approval/i);
+  assert.equal(result.metadata?.risk, risk);
   assert.deepEqual(result.metadata?.blockedAction, {
     kind: "approval",
     reason,
@@ -193,7 +195,8 @@ test("command tool refuses unknown commands with allow-safe policy", async () =>
   assertApprovalBlocked(
     result,
     "definitely-not-a-real-forgecode-command",
-    "Command risk is not safe."
+    "Command risk is not safe.",
+    "unknown"
   );
   assert.equal(result.metadata?.risk, "unknown");
 });
@@ -234,6 +237,42 @@ test("command tool refuses shell -c commands by default", async () => {
   const result = await tool.execute({ command: "sh", args: ["-c", "rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "sh -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses combined shell -lc commands by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "bash", args: ["-lc", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "bash -lc rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses path-qualified combined shell -lc commands by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/bin/bash", args: ["-lc", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/bin/bash -lc rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses combined shell -ec commands by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "sh", args: ["-ec", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "sh -ec rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
