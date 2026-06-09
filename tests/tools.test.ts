@@ -133,6 +133,18 @@ test("command tool refuses path-qualified rm by default", async () => {
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses uppercase path-qualified rm by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/bin/RM", args: ["sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/bin/RM sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses rmdir by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const target = join(root, "target");
@@ -342,6 +354,18 @@ test("command tool refuses path-qualified dash command strings by default", asyn
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses uppercase path-qualified shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/bin/SH", args: ["-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/bin/SH -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses fish command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -450,6 +474,18 @@ test("command tool refuses cmd.exe command strings by default", async () => {
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses uppercase cmd.exe command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "CMD.EXE", args: ["/c", "del sentinel.txt"] });
+
+  assertApprovalBlocked(result, "CMD.EXE /c del sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses cmd keepalive command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -483,6 +519,18 @@ test("command tool refuses env-wrapped dash command strings by default", async (
   const result = await tool.execute({ command: "/usr/bin/env", args: ["/bin/dash", "-c", "rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "/usr/bin/env /bin/dash -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env-wrapped uppercase shell command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["/bin/SH", "-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env /bin/SH -c rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 

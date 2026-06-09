@@ -22,6 +22,10 @@ function normalizeCommandName(command: string): string {
   return command.split(/[\\/]/).filter(Boolean).at(-1) ?? command;
 }
 
+function normalizeCommandNameForRisk(command: string): string {
+  return normalizeCommandName(command).toLowerCase();
+}
+
 function hasForceFlag(args: string[]): boolean {
   return args.some(
     (arg) => arg === "-f" || arg === "--force" || arg.startsWith("--force=") || arg.startsWith("--force-")
@@ -338,7 +342,7 @@ function isDestructiveGitCommand(args: string[]): boolean {
 }
 
 function isDestructiveCommand(command: string, args: string[], envDepth = 0): boolean {
-  const normalizedCommand = normalizeCommandName(command);
+  const normalizedCommand = normalizeCommandNameForRisk(command);
 
   if (isShellCommand(normalizedCommand) && hasShellCommandStringOption(args)) {
     return true;
