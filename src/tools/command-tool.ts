@@ -41,8 +41,11 @@ const shellCommands = new Set([
   "yash",
   "ash",
   "pwsh",
+  "pwsh.exe",
   "powershell",
-  "cmd"
+  "powershell.exe",
+  "cmd",
+  "cmd.exe"
 ]);
 const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
 
@@ -69,6 +72,7 @@ function hasShellCommandStringOption(args: string[]): boolean {
       lowerArg.startsWith("-command") ||
       lowerArg.startsWith("-encodedcommand") ||
       lowerArg.startsWith("-encodedarguments") ||
+      lowerArg === "-e" ||
       lowerArg === "-enc" ||
       lowerArg === "-ec" ||
       (arg.startsWith("-") && !arg.startsWith("--") && lowerArg.includes("c"))

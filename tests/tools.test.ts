@@ -402,6 +402,30 @@ test("command tool refuses powershell encoded command strings by default", async
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses powershell encoded command alias by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "pwsh", args: ["-e", "AAA="] });
+
+  assertApprovalBlocked(result, "pwsh -e AAA=");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses powershell.exe command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "powershell.exe", args: ["-Command", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "powershell.exe -Command rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses cmd command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -411,6 +435,18 @@ test("command tool refuses cmd command strings by default", async () => {
   const result = await tool.execute({ command: "cmd", args: ["/c", "del sentinel.txt"] });
 
   assertApprovalBlocked(result, "cmd /c del sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses cmd.exe command strings by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "cmd.exe", args: ["/c", "del sentinel.txt"] });
+
+  assertApprovalBlocked(result, "cmd.exe /c del sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
