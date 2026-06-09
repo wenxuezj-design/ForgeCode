@@ -9,13 +9,14 @@ import { createToolRegistry } from "../dist/tools/registry.js";
 
 function assertApprovalBlocked(
   result: Awaited<ReturnType<ReturnType<typeof createCommandTool>["execute"]>>,
-  command: string
+  command: string,
+  reason = "Destructive command requires approval."
 ): void {
   assert.equal(result.success, false);
   assert.match(result.content, /requires approval/i);
   assert.deepEqual(result.metadata?.blockedAction, {
     kind: "approval",
-    reason: "Destructive command requires approval.",
+    reason,
     command
   });
 }
@@ -118,6 +119,18 @@ test("command tool refuses destructive commands by default", async () => {
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses path-qualified rm by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/bin/rm", args: ["sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/bin/rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses rmdir by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const target = join(root, "target");
@@ -142,6 +155,18 @@ test("command tool refuses mv by default", async () => {
   assert.equal(await readFile(source, "utf8"), "old\n");
 });
 
+test("command tool refuses path-qualified mv by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const source = join(root, "old.txt");
+  await writeFile(source, "old\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/bin/mv", args: ["old.txt", "new.txt"] });
+
+  assertApprovalBlocked(result, "/bin/mv old.txt new.txt");
+  assert.equal(await readFile(source, "utf8"), "old\n");
+});
+
 test("command tool resolves spawn errors with structured verification metadata", async () => {
   const tool = createCommandTool({ cwd: process.cwd() });
 
@@ -158,6 +183,19 @@ test("command tool resolves spawn errors with structured verification metadata",
     passed: false,
     output: result.content
   });
+});
+
+test("command tool refuses unknown commands with allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({ command: "definitely-not-a-real-forgecode-command", args: [] });
+
+  assertApprovalBlocked(
+    result,
+    "definitely-not-a-real-forgecode-command",
+    "Command risk is not safe."
+  );
+  assert.equal(result.metadata?.risk, "unknown");
 });
 
 test("command tool does not refuse read-only git commands by default", async () => {
@@ -185,6 +223,30 @@ test("command tool refuses force flag variants by default", async () => {
   const result = await tool.execute({ command: "node", args: ["--force-with-lease"] });
 
   assertApprovalBlocked(result, "node --force-with-lease");
+});
+
+test("command tool refuses shell -c commands by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "sh", args: ["-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "sh -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses path-qualified shell -c commands by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/bin/sh", args: ["-c", "rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/bin/sh -c rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
 test("command tool refuses destructive git commands after global options", async () => {

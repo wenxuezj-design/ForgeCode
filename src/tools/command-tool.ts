@@ -18,10 +18,18 @@ function formatCommand(command: string, args: string[]): string {
   return [command, ...args].join(" ");
 }
 
+function normalizeCommandName(command: string): string {
+  return command.split(/[\\/]/).filter(Boolean).at(-1) ?? command;
+}
+
 function hasForceFlag(args: string[]): boolean {
   return args.some(
     (arg) => arg === "-f" || arg === "--force" || arg.startsWith("--force=") || arg.startsWith("--force-")
   );
+}
+
+function isShellCommand(command: string): boolean {
+  return command === "sh" || command === "bash" || command === "zsh";
 }
 
 function parseGitCommand(args: string[]): { subcommand: string | undefined; subcommandArgs: string[] } {
@@ -105,16 +113,26 @@ function isDestructiveGitCommand(args: string[]): boolean {
 
 function classifyCommand(command: string, args: string[]): CommandRisk {
   const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
+  const normalizedCommand = normalizeCommandName(command);
 
-  if (command === "git" && isDestructiveGitCommand(args)) {
+  if (isShellCommand(normalizedCommand) && args.includes("-c")) {
     return "destructive";
   }
 
-  if (destructiveCommands.has(command) || hasForceFlag(args)) {
+  if (normalizedCommand === "git" && isDestructiveGitCommand(args)) {
     return "destructive";
   }
 
-  if (command === "npm" || command === "node" || command === "tsc" || command === "npx") {
+  if (destructiveCommands.has(normalizedCommand) || hasForceFlag(args)) {
+    return "destructive";
+  }
+
+  if (
+    normalizedCommand === "npm" ||
+    normalizedCommand === "node" ||
+    normalizedCommand === "tsc" ||
+    normalizedCommand === "npx"
+  ) {
     return "safe";
   }
 
@@ -196,6 +214,21 @@ export function createCommandTool(options: CreateCommandToolOptions): Tool {
             blockedAction: {
               kind: "approval",
               reason: "Destructive command requires approval.",
+              command: formattedCommand
+            }
+          }
+        };
+      }
+
+      if (approvalPolicy === "allow-safe" && risk !== "safe") {
+        return {
+          success: false,
+          content: `Command requires approval: ${formattedCommand}`,
+          metadata: {
+            risk,
+            blockedAction: {
+              kind: "approval",
+              reason: "Command risk is not safe.",
               command: formattedCommand
             }
           }
