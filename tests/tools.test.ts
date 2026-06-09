@@ -145,6 +145,18 @@ test("command tool refuses uppercase path-qualified rm by default", async () => 
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses rm.exe by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "rm.exe", args: ["sentinel.txt"] });
+
+  assertApprovalBlocked(result, "rm.exe sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses rmdir by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const target = join(root, "target");
@@ -270,6 +282,14 @@ test("command tool refuses path-qualified git safe names with allow-safe policy"
   const result = await tool.execute({ command: "./git", args: ["status", "--short"] });
 
   assertApprovalBlocked(result, "./git status --short", "Command risk is not safe.", "unknown");
+});
+
+test("command tool refuses git.exe safe names with allow-safe policy", async () => {
+  const tool = createCommandTool({ cwd: process.cwd(), approvalPolicy: "allow-safe" });
+
+  const result = await tool.execute({ command: "git.exe", args: ["status", "--short"] });
+
+  assertApprovalBlocked(result, "git.exe status --short", "Command risk is not safe.", "unknown");
 });
 
 test("command tool refuses undocumented git status shorthand with allow-safe policy", async () => {
@@ -594,6 +614,18 @@ test("command tool refuses env-wrapped destructive utilities by default", async 
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses env.exe-wrapped destructive utilities by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "env.exe", args: ["rm", "sentinel.txt"] });
+
+  assertApprovalBlocked(result, "env.exe rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses env assignments with non-identifier names by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -906,6 +938,15 @@ test("command tool refuses destructive git reset and checkout by default", async
 
   assertApprovalBlocked(reset, "git reset --hard");
   assertApprovalBlocked(checkout, "git checkout README.md");
+});
+
+test("command tool refuses git.exe destructive commands by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "git.exe", args: ["reset", "--hard"] });
+
+  assertApprovalBlocked(result, "git.exe reset --hard");
 });
 
 test("command tool refuses destructive git restore by default", async () => {

@@ -35,7 +35,11 @@ function normalizeCommandName(command: string): string {
 }
 
 function normalizeCommandNameForRisk(command: string): string {
-  return normalizeCommandName(command).toLowerCase();
+  const normalizedCommand = normalizeCommandName(command).toLowerCase();
+
+  return normalizedCommand.endsWith(".exe")
+    ? normalizedCommand.slice(0, -".exe".length)
+    : normalizedCommand;
 }
 
 function hasForceFlag(args: string[]): boolean {
@@ -63,19 +67,11 @@ const shellCommands = new Set([
 const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
 
 function isShellCommand(command: string): boolean {
-  const normalizedCommand = command.toLowerCase();
-  const shellCommand = normalizedCommand.endsWith(".exe")
-    ? normalizedCommand.slice(0, -".exe".length)
-    : normalizedCommand;
-
-  return shellCommands.has(shellCommand);
+  return shellCommands.has(normalizeCommandNameForRisk(command));
 }
 
 function isPowerShellCommand(command: string): boolean {
-  const normalizedCommand = command.toLowerCase();
-  const shellCommand = normalizedCommand.endsWith(".exe")
-    ? normalizedCommand.slice(0, -".exe".length)
-    : normalizedCommand;
+  const shellCommand = normalizeCommandNameForRisk(command);
 
   return shellCommand === "pwsh" || shellCommand === "powershell";
 }
