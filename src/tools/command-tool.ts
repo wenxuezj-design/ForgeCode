@@ -29,9 +29,14 @@ function hasForceFlag(args: string[]): boolean {
 }
 
 const shellCommands = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "mksh", "yash", "ash"]);
+const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
 
 function isShellCommand(command: string): boolean {
   return shellCommands.has(command);
+}
+
+function hasShortOption(arg: string, option: string): boolean {
+  return arg.startsWith("-") && !arg.startsWith("--") && arg.slice(1).includes(option);
 }
 
 function hasShellCommandStringOption(args: string[]): boolean {
@@ -182,21 +187,11 @@ function isDestructiveEnvWrappedCommand(args: string[], depth = 0): boolean {
   }
 
   const envCommand = parseEnvCommand(args);
-  const normalizedEnvCommand = envCommand.command ? normalizeCommandName(envCommand.command) : undefined;
-
-  if (normalizedEnvCommand === undefined) {
+  if (envCommand.command === undefined) {
     return false;
   }
 
-  if (isShellCommand(normalizedEnvCommand) && hasShellCommandStringOption(envCommand.args)) {
-    return true;
-  }
-
-  if (normalizedEnvCommand === "env") {
-    return isDestructiveEnvWrappedCommand(envCommand.args, depth + 1);
-  }
-
-  return false;
+  return isDestructiveCommand(envCommand.command, envCommand.args, depth + 1);
 }
 
 function parseGitCommand(args: string[]): { subcommand: string | undefined; subcommandArgs: string[] } {
@@ -277,11 +272,40 @@ function isDestructiveGitCommand(args: string[]): boolean {
 
   if (subcommand === "push") {
     return subcommandArgs.some(
-      (arg) => arg === "--delete" || arg === "-d" || arg === "-D" || arg.startsWith(":") || arg.startsWith("+:")
+      (arg) =>
+        arg === "--delete" ||
+        arg === "-d" ||
+        arg === "-D" ||
+        arg === "--mirror" ||
+        arg === "--prune" ||
+        arg === "--force" ||
+        arg.startsWith("--force=") ||
+        arg.startsWith("--force-") ||
+        arg.startsWith(":") ||
+        arg.startsWith("+") ||
+        hasShortOption(arg, "f")
     );
   }
 
   return false;
+}
+
+function isDestructiveCommand(command: string, args: string[], envDepth = 0): boolean {
+  const normalizedCommand = normalizeCommandName(command);
+
+  if (isShellCommand(normalizedCommand) && hasShellCommandStringOption(args)) {
+    return true;
+  }
+
+  if (normalizedCommand === "env") {
+    return isDestructiveEnvWrappedCommand(args, envDepth);
+  }
+
+  if (normalizedCommand === "git" && isDestructiveGitCommand(args)) {
+    return true;
+  }
+
+  return destructiveCommands.has(normalizedCommand) || hasForceFlag(args);
 }
 
 function isSafeGitCommand(args: string[]): boolean {
@@ -303,22 +327,7 @@ function isSafeNodeCommand(args: string[]): boolean {
 }
 
 function classifyCommand(command: string, args: string[]): CommandRisk {
-  const destructiveCommands = new Set(["rm", "rmdir", "mv"]);
-  const normalizedCommand = normalizeCommandName(command);
-
-  if (isShellCommand(normalizedCommand) && hasShellCommandStringOption(args)) {
-    return "destructive";
-  }
-
-  if (normalizedCommand === "env" && isDestructiveEnvWrappedCommand(args)) {
-    return "destructive";
-  }
-
-  if (normalizedCommand === "git" && isDestructiveGitCommand(args)) {
-    return "destructive";
-  }
-
-  if (destructiveCommands.has(normalizedCommand) || hasForceFlag(args)) {
+  if (isDestructiveCommand(command, args)) {
     return "destructive";
   }
 
