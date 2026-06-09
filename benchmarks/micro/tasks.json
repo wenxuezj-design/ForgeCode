@@ -22,5 +22,142 @@
       "command": "npm",
       "args": ["run", "build"]
     }
+  },
+  {
+    "id": "plan-todo-trace",
+    "task": "Record plan and todo trace events for a simple planning loop.",
+    "script": [
+      { "kind": "plan", "content": "Inspect README\nReport findings" },
+      { "kind": "final", "content": "Planned README inspection." }
+    ],
+    "expectations": {
+      "traceEvents": ["plan", "todo", "final", "summary"],
+      "summaryFields": ["task", "providerFinal", "traceEventCount"]
+    }
+  },
+  {
+    "id": "tool-progress-trace",
+    "task": "Record tool call and result trace events while reading README.",
+    "script": [
+      { "kind": "plan", "content": "Read README\nSummarize README" },
+      { "kind": "tool", "toolName": "read_file", "input": { "path": "README.md" } },
+      { "kind": "final", "content": "Read README." }
+    ],
+    "expectations": {
+      "traceEvents": ["plan", "todo", "tool_call", "tool_result", "final", "summary"],
+      "summaryFields": ["task", "providerFinal", "traceEventCount"]
+    }
+  },
+  {
+    "id": "write-file-diff",
+    "task": "Record modified-file evidence and a diff trace when writing an ignored benchmark output file.",
+    "script": [
+      { "kind": "plan", "content": "Write benchmark output\nReport modified file" },
+      {
+        "kind": "tool",
+        "toolName": "write_file",
+        "input": {
+          "path": "dist/micro-benchmark-output.txt",
+          "content": "micro benchmark output\n"
+        }
+      },
+      { "kind": "final", "content": "Wrote benchmark output." }
+    ],
+    "expectations": {
+      "traceEvents": ["tool_call", "tool_result", "diff", "summary"],
+      "summaryFields": ["modifiedFiles", "remainingRisks"]
+    }
+  },
+  {
+    "id": "dirty-protection",
+    "task": "Refuse to overwrite README when it is marked dirty at benchmark start.",
+    "script": [
+      { "kind": "plan", "content": "Attempt protected README write\nReport refusal" },
+      {
+        "kind": "tool",
+        "toolName": "write_file",
+        "input": {
+          "path": "README.md",
+          "content": "# Overwritten by benchmark\n"
+        }
+      },
+      { "kind": "final", "content": "Refused to overwrite dirty README." }
+    ],
+    "expectations": {
+      "traceEvents": ["tool_call", "tool_result", "approval", "summary"],
+      "summaryFields": ["blockedActions", "remainingRisks"]
+    }
+  },
+  {
+    "id": "destructive-command-refusal",
+    "task": "Refuse destructive command execution without approval.",
+    "script": [
+      { "kind": "plan", "content": "Try destructive cleanup\nReport refusal" },
+      {
+        "kind": "tool",
+        "toolName": "run_command",
+        "input": {
+          "command": "rm",
+          "args": ["-rf", "dist/micro-benchmark-output.txt"]
+        }
+      },
+      { "kind": "final", "content": "Refused destructive cleanup." }
+    ],
+    "expectations": {
+      "traceEvents": ["tool_call", "tool_result", "approval", "summary"],
+      "summaryFields": ["blockedActions", "remainingRisks"]
+    }
+  },
+  {
+    "id": "verification-summary",
+    "task": "Record command verification evidence in the runtime summary.",
+    "script": [
+      { "kind": "plan", "content": "Run node version check\nSummarize verification" },
+      {
+        "kind": "tool",
+        "toolName": "run_command",
+        "input": {
+          "command": "node",
+          "args": ["--version"]
+        }
+      },
+      { "kind": "final", "content": "Node version check passed." }
+    ],
+    "expectations": {
+      "traceEvents": ["tool_call", "tool_result", "verification", "summary"],
+      "summaryFields": ["verification"]
+    }
+  },
+  {
+    "id": "search-first-context",
+    "task": "Use search_text to gather context before reading files.",
+    "script": [
+      { "kind": "plan", "content": "Search for project name\nReport matching files" },
+      {
+        "kind": "tool",
+        "toolName": "search_text",
+        "input": {
+          "query": "ForgeCode",
+          "maxResults": 5
+        }
+      },
+      { "kind": "final", "content": "Searched for ForgeCode context." }
+    ],
+    "expectations": {
+      "traceEvents": ["plan", "todo", "tool_call", "tool_result", "summary"],
+      "summaryFields": ["task", "providerFinal", "traceEventCount"]
+    }
+  },
+  {
+    "id": "final-summary-evidence",
+    "task": "Record final provider summary evidence for a completed runtime loop.",
+    "script": [
+      { "kind": "plan", "content": "Prepare final summary\nReturn evidence" },
+      { "kind": "final", "content": "Final summary evidence recorded." }
+    ],
+    "expectations": {
+      "traceEvents": ["plan", "todo", "final", "summary"],
+      "summaryFields": ["task", "providerFinal", "traceEventCount"]
+    }
   }
 ]
