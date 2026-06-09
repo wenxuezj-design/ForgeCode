@@ -176,7 +176,7 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
 
 function isDestructiveEnvWrappedCommand(args: string[], depth = 0): boolean {
   if (depth >= 8) {
-    return false;
+    return true;
   }
 
   const envCommand = parseEnvCommand(args);

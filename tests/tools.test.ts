@@ -341,6 +341,22 @@ test("command tool refuses nested env-wrapped shell command strings by default",
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses env wrapper chains that exceed scan depth by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+  const envChain = Array.from({ length: 8 }, () => "/usr/bin/env");
+
+  const result = await tool.execute({
+    command: "/usr/bin/env",
+    args: [...envChain, "sh", "-c", "rm sentinel.txt"]
+  });
+
+  assertApprovalBlocked(result, `/usr/bin/env ${envChain.join(" ")} sh -c rm sentinel.txt`);
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses env split-string shell command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
