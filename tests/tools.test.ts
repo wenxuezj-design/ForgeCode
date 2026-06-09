@@ -675,6 +675,53 @@ test("command tool refuses env-wrapped destructive git commands by default", asy
   assertApprovalBlocked(result, "/usr/bin/env git reset --hard");
 });
 
+test("command tool refuses env-wrapped git config-env bang aliases by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({
+    command: "/usr/bin/env",
+    args: [
+      "FORGECODE_ALIAS=!rm sentinel.txt",
+      "git",
+      "--config-env=alias.codexprobe=FORGECODE_ALIAS",
+      "codexprobe"
+    ]
+  });
+
+  assertApprovalBlocked(
+    result,
+    "/usr/bin/env FORGECODE_ALIAS=!rm sentinel.txt git --config-env=alias.codexprobe=FORGECODE_ALIAS codexprobe"
+  );
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env-wrapped git config-count bang aliases by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({
+    command: "/usr/bin/env",
+    args: [
+      "GIT_CONFIG_COUNT=1",
+      "GIT_CONFIG_KEY_0=alias.codexprobe",
+      "GIT_CONFIG_VALUE_0=!rm sentinel.txt",
+      "git",
+      "codexprobe"
+    ]
+  });
+
+  assertApprovalBlocked(
+    result,
+    "/usr/bin/env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.codexprobe GIT_CONFIG_VALUE_0=!rm sentinel.txt git codexprobe"
+  );
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses nested env-wrapped shell command strings by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -919,6 +966,7 @@ test("command tool refuses destructive git push deletes by default", async () =>
   const refDelete = await tool.execute({ command: "git", args: ["push", "origin", ":feature"] });
   const forcedRefDelete = await tool.execute({ command: "git", args: ["push", "origin", "+:feature"] });
   const groupedForce = await tool.execute({ command: "git", args: ["push", "-uf", "origin", "main"] });
+  const groupedDelete = await tool.execute({ command: "git", args: ["push", "-qd", "origin", "feature"] });
   const forcedRefUpdate = await tool.execute({ command: "git", args: ["push", "origin", "+HEAD:feature"] });
   const mirror = await tool.execute({ command: "git", args: ["push", "--mirror", "origin"] });
   const prune = await tool.execute({ command: "git", args: ["push", "--prune", "origin"] });
@@ -929,6 +977,7 @@ test("command tool refuses destructive git push deletes by default", async () =>
   assertApprovalBlocked(refDelete, "git push origin :feature");
   assertApprovalBlocked(forcedRefDelete, "git push origin +:feature");
   assertApprovalBlocked(groupedForce, "git push -uf origin main");
+  assertApprovalBlocked(groupedDelete, "git push -qd origin feature");
   assertApprovalBlocked(forcedRefUpdate, "git push origin +HEAD:feature");
   assertApprovalBlocked(mirror, "git push --mirror origin");
   assertApprovalBlocked(prune, "git push --prune origin");

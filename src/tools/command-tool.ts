@@ -14,6 +14,18 @@ interface CommandInput {
   args: string[];
 }
 
+interface RiskContext {
+  env: Map<string, string>;
+}
+
+interface ParsedEnvCommand {
+  command: string | undefined;
+  args: string[];
+  env: Map<string, string>;
+}
+
+const emptyRiskContext: RiskContext = { env: new Map() };
+
 function formatCommand(command: string, args: string[]): string {
   return [command, ...args].join(" ");
 }
@@ -148,8 +160,13 @@ function splitEnvCommandString(value: string): string[] {
   return tokens;
 }
 
-function parseEnvCommand(args: string[], allowSplitString = true): { command: string | undefined; args: string[] } {
+function parseEnvCommand(
+  args: string[],
+  allowSplitString = true,
+  inheritedEnv: Map<string, string> = new Map()
+): ParsedEnvCommand {
   const optionsWithValues = new Set(["-u", "--unset", "-C", "--chdir", "-P", "--path", "-a", "--argv0"]);
+  const env = new Map(inheritedEnv);
   let index = 0;
 
   while (index < args.length) {
@@ -158,7 +175,7 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
     if (allowSplitString && (arg === "-S" || arg === "--split-string")) {
       const splitArgs = args[index + 1] ? splitEnvCommandString(args[index + 1]) : [];
 
-      return parseEnvCommand([...splitArgs, ...args.slice(index + 2)], false);
+      return parseEnvCommand([...splitArgs, ...args.slice(index + 2)], false, env);
     }
 
     if (allowSplitString && arg.startsWith("-") && !arg.startsWith("--")) {
@@ -176,7 +193,7 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
             : splitEnvCommandString(args[index + 1] ?? "");
           const remainingArgs = splitValue.length > 0 ? args.slice(index + 1) : args.slice(index + 2);
 
-          return parseEnvCommand([...splitArgs, ...remainingArgs], false);
+          return parseEnvCommand([...splitArgs, ...remainingArgs], false, env);
         }
 
         parsedShortOption = true;
@@ -204,7 +221,7 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
     if (allowSplitString && arg.startsWith("--split-string=")) {
       const splitArgs = splitEnvCommandString(arg.slice("--split-string=".length));
 
-      return parseEnvCommand([...splitArgs, ...args.slice(index + 1)], false);
+      return parseEnvCommand([...splitArgs, ...args.slice(index + 1)], false, env);
     }
 
     if (optionsWithValues.has(arg)) {
@@ -222,34 +239,47 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
       continue;
     }
 
-    if (arg.startsWith("-") || (arg.length > 0 && arg.includes("="))) {
+    if (arg.startsWith("-")) {
+      index += 1;
+      continue;
+    }
+
+    if (arg.length > 0 && arg.includes("=")) {
+      const equalsIndex = arg.indexOf("=");
+
+      if (equalsIndex > 0) {
+        env.set(arg.slice(0, equalsIndex), arg.slice(equalsIndex + 1));
+      }
+
       index += 1;
       continue;
     }
 
     return {
       command: arg,
-      args: args.slice(index + 1)
+      args: args.slice(index + 1),
+      env
     };
   }
 
   return {
     command: undefined,
-    args: []
+    args: [],
+    env
   };
 }
 
-function isDestructiveEnvWrappedCommand(args: string[], depth = 0): boolean {
+function isDestructiveEnvWrappedCommand(args: string[], depth = 0, context = emptyRiskContext): boolean {
   if (depth >= 8) {
     return true;
   }
 
-  const envCommand = parseEnvCommand(args);
+  const envCommand = parseEnvCommand(args, true, context.env);
   if (envCommand.command === undefined) {
     return false;
   }
 
-  return isDestructiveCommand(envCommand.command, envCommand.args, depth + 1);
+  return isDestructiveCommand(envCommand.command, envCommand.args, depth + 1, { env: envCommand.env });
 }
 
 function parseGitCommand(args: string[]): { subcommand: string | undefined; subcommandArgs: string[] } {
@@ -318,19 +348,47 @@ function isGitBangAliasConfig(value: string): boolean {
   return isGitAliasConfigKey(value.slice(0, equalsIndex)) && value.slice(equalsIndex + 1).trimStart().startsWith("!");
 }
 
-function isGitBangAliasConfigEnv(value: string): boolean {
+function getRiskEnvValue(name: string, context: RiskContext): string | undefined {
+  return context.env.get(name) ?? process.env[name];
+}
+
+function isGitBangAliasConfigEnv(value: string, context: RiskContext): boolean {
   const equalsIndex = value.indexOf("=");
 
   if (equalsIndex === -1) {
     return false;
   }
 
-  const envValue = process.env[value.slice(equalsIndex + 1)] ?? "";
+  const envValue = getRiskEnvValue(value.slice(equalsIndex + 1), context) ?? "";
 
   return isGitAliasConfigKey(value.slice(0, equalsIndex)) && envValue.trimStart().startsWith("!");
 }
 
-function hasDestructiveGitAliasConfig(args: string[]): boolean {
+function hasDestructiveGitConfigCountAlias(context: RiskContext): boolean {
+  const countValue = getRiskEnvValue("GIT_CONFIG_COUNT", context);
+  const count = Number.parseInt(countValue ?? "", 10);
+
+  if (!Number.isSafeInteger(count) || count <= 0) {
+    return false;
+  }
+
+  for (let index = 0; index < count; index += 1) {
+    const key = getRiskEnvValue(`GIT_CONFIG_KEY_${index}`, context) ?? "";
+    const value = getRiskEnvValue(`GIT_CONFIG_VALUE_${index}`, context) ?? "";
+
+    if (isGitAliasConfigKey(key) && value.trimStart().startsWith("!")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasDestructiveGitAliasConfig(args: string[], context: RiskContext): boolean {
+  if (hasDestructiveGitConfigCountAlias(context)) {
+    return true;
+  }
+
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
 
@@ -351,7 +409,7 @@ function hasDestructiveGitAliasConfig(args: string[]): boolean {
     }
 
     if (arg === "--config-env") {
-      if (isGitBangAliasConfigEnv(args[index + 1] ?? "")) {
+      if (isGitBangAliasConfigEnv(args[index + 1] ?? "", context)) {
         return true;
       }
 
@@ -359,7 +417,7 @@ function hasDestructiveGitAliasConfig(args: string[]): boolean {
       continue;
     }
 
-    if (arg.startsWith("--config-env=") && isGitBangAliasConfigEnv(arg.slice("--config-env=".length))) {
+    if (arg.startsWith("--config-env=") && isGitBangAliasConfigEnv(arg.slice("--config-env=".length), context)) {
       return true;
     }
   }
@@ -367,10 +425,10 @@ function hasDestructiveGitAliasConfig(args: string[]): boolean {
   return false;
 }
 
-function isDestructiveGitCommand(args: string[]): boolean {
+function isDestructiveGitCommand(args: string[], context: RiskContext): boolean {
   const destructiveSubcommands = new Set(["reset", "clean", "checkout", "restore", "rm", "switch"]);
 
-  if (hasDestructiveGitAliasConfig(args)) {
+  if (hasDestructiveGitAliasConfig(args, context)) {
     return true;
   }
 
@@ -416,6 +474,8 @@ function isDestructiveGitCommand(args: string[]): boolean {
         arg.startsWith("--force-") ||
         arg.startsWith(":") ||
         arg.startsWith("+") ||
+        hasShortOption(arg, "d") ||
+        hasShortOption(arg, "D") ||
         hasShortOption(arg, "f")
     );
   }
@@ -423,7 +483,7 @@ function isDestructiveGitCommand(args: string[]): boolean {
   return false;
 }
 
-function isDestructiveCommand(command: string, args: string[], envDepth = 0): boolean {
+function isDestructiveCommand(command: string, args: string[], envDepth = 0, context = emptyRiskContext): boolean {
   const normalizedCommand = normalizeCommandNameForRisk(command);
 
   if (isShellCommand(normalizedCommand) && hasShellCommandStringOption(normalizedCommand, args)) {
@@ -431,10 +491,10 @@ function isDestructiveCommand(command: string, args: string[], envDepth = 0): bo
   }
 
   if (normalizedCommand === "env") {
-    return isDestructiveEnvWrappedCommand(args, envDepth);
+    return isDestructiveEnvWrappedCommand(args, envDepth, context);
   }
 
-  if (normalizedCommand === "git" && isDestructiveGitCommand(args)) {
+  if (normalizedCommand === "git" && isDestructiveGitCommand(args, context)) {
     return true;
   }
 
