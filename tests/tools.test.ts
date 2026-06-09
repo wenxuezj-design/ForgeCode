@@ -594,6 +594,18 @@ test("command tool refuses env-wrapped destructive utilities by default", async 
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 
+test("command tool refuses env assignments with non-identifier names by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["1=2", "rm", "sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env 1=2 rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
 test("command tool refuses env argv0 destructive utilities by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
   const sentinel = join(root, "sentinel.txt");
@@ -639,6 +651,18 @@ test("command tool refuses env split-string destructive utilities by default", a
   const result = await tool.execute({ command: "/usr/bin/env", args: ["-S", "rm sentinel.txt"] });
 
   assertApprovalBlocked(result, "/usr/bin/env -S rm sentinel.txt");
+  assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
+});
+
+test("command tool refuses env split-string assignments with non-identifier names by default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgecode-command-tool-"));
+  const sentinel = join(root, "sentinel.txt");
+  await writeFile(sentinel, "keep me\n");
+  const tool = createCommandTool({ cwd: root });
+
+  const result = await tool.execute({ command: "/usr/bin/env", args: ["-S", "A-B=2 rm sentinel.txt"] });
+
+  assertApprovalBlocked(result, "/usr/bin/env -S A-B=2 rm sentinel.txt");
   assert.equal(await readFile(sentinel, "utf8"), "keep me\n");
 });
 

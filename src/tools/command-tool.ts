@@ -211,7 +211,7 @@ function parseEnvCommand(args: string[], allowSplitString = true): { command: st
       continue;
     }
 
-    if (arg.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(arg)) {
+    if (arg.startsWith("-") || (arg.length > 0 && arg.includes("="))) {
       index += 1;
       continue;
     }
